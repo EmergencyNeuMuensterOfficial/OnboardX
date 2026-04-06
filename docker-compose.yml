@@ -1,0 +1,74 @@
+# docker-compose.yml — OnboardX V2 Production Stack
+#
+# Usage:
+#   docker compose up -d              → single-shard mode
+#   docker compose up -d --scale bot=3  → 3 clustered instances (use with CLUSTER_COUNT)
+#
+# Copy .env.example → .env and fill in values before starting.
+
+version: '3.9'
+
+services:
+  # ── Bot (sharding manager) ─────────────────────────────────────────────────
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: onboardx-v2:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV:         production
+      # Sharding: auto = let Discord decide the shard count
+      TOTAL_SHARDS:     auto
+      # Clustering: set > 1 to spawn multiple Node processes per container
+      CLUSTER_COUNT:    "1"
+      SHARDS_PER_CLUSTER: "4"
+      SHARD_DELAY_MS:   "5500"
+      HEALTH_PORT:      "9090"
+    ports:
+      - "${HEALTH_PORT:-9090}:9090"   # Health + metrics endpoint
+    volumes:
+      - ./logs:/app/logs              # Persist log files on host
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/health"]
+      interval: 30s
+      timeout:  5s
+      retries:  3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus:   "1.0"
+        reservations:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ── Optional: Prometheus metrics scraper ─────────────────────────────────────
+  # Uncomment to enable Prometheus scraping of /metrics
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   volumes:
+  #     - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+  #   ports:
+  #     - "9091:9090"
+  #   depends_on:
+  #     - bot
+
+  # ── Optional: Grafana dashboard ───────────────────────────────────────────
+  # grafana:
+  #   image: grafana/grafana:latest
+  #   ports:
+  #     - "3000:3000"
+  #   depends_on:
+  #     - prometheus
+
+networks:
+  default:
+    name: onboardx-network

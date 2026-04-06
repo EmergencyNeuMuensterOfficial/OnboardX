@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OnboardX</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:      #0d1117;
+      --surface: #161b22;
+      --border:  #30363d;
+      --text:    #e6edf3;
+      --muted:   #7d8590;
+      --green:   #3fb950;
+      --yellow:  #d29922;
+      --red:     #f85149;
+      --blue:    #58a6ff;
+      --r:       10px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'IBM Plex Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* NAV */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(13,17,23,.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      height: 56px;
+      display: flex; align-items: center;
+      padding: 0 24px; gap: 24px;
+    }
+    .nav-brand {
+      font-weight: 700; font-size: 16px;
+      color: var(--text); text-decoration: none;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .nav-logo {
+      width: 26px; height: 26px; border-radius: 6px;
+      background: linear-gradient(135deg,#5865f2,#3b82f6);
+      display: grid; place-items: center;
+      font-size: 11px; font-weight: 800; color: #fff;
+    }
+    .nav-links { display: flex; gap: 2px; list-style: none; }
+    .nav-links a {
+      padding: 5px 10px; border-radius: 6px;
+      font-size: 14px; color: var(--muted);
+      text-decoration: none; transition: color .15s, background .15s;
+    }
+    .nav-links a:hover { color: var(--text); background: rgba(255,255,255,.05); }
+    .nav-links a.active { color: var(--text); }
+    .nav-sp { flex: 1; }
+    .nav-status-pill {
+      display: flex; align-items: center; gap: 6px;
+      padding: 5px 11px; border-radius: 999px;
+      font-size: 12px; font-weight: 500; border: 1px solid;
+      text-decoration: none; transition: all .2s;
+    }
+    .pill-green  { background: rgba(63,185,80,.08);  border-color: rgba(63,185,80,.3);  color: var(--green); }
+    .pill-yellow { background: rgba(210,153,34,.08); border-color: rgba(210,153,34,.3); color: var(--yellow); }
+    .pill-red    { background: rgba(248,81,73,.08);  border-color: rgba(248,81,73,.3);  color: var(--red); }
+    .pill-grey   { background: rgba(125,133,144,.08);border-color: rgba(125,133,144,.3);color: var(--muted); }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    @keyframes pulse {
+      0%,100% { opacity:1; transform:scale(1); }
+      50%      { opacity:.6; transform:scale(1.4); }
+    }
+    .dot.live { animation: pulse 2s ease-in-out infinite; }
+
+    /* HERO */
+    .hero {
+      max-width: 760px; margin: 0 auto;
+      padding: 80px 24px 64px;
+      text-align: center;
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 5px 12px; border-radius: 999px;
+      background: rgba(88,101,242,.12); border: 1px solid rgba(88,101,242,.3);
+      color: #818cf8; font-size: 12px; font-weight: 600;
+      margin-bottom: 24px;
+    }
+    .hero h1 {
+      font-size: clamp(32px,6vw,52px);
+      font-weight: 700; line-height: 1.1;
+      letter-spacing: -.02em;
+      margin-bottom: 18px;
+    }
+    .hero h1 span { color: var(--blue); }
+    .hero p {
+      font-size: 17px; color: var(--muted); line-height: 1.7;
+      max-width: 520px; margin: 0 auto 36px;
+    }
+    .hero-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      padding: 10px 20px; border-radius: var(--r);
+      font-size: 14px; font-weight: 600;
+      text-decoration: none; cursor: pointer; border: 0;
+      transition: all .15s;
+    }
+    .btn-primary {
+      background: #5865f2; color: #fff;
+    }
+    .btn-primary:hover { background: #4752c4; }
+    .btn-secondary {
+      background: var(--surface); color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { border-color: var(--muted); }
+
+    /* STATS STRIP */
+    .stats-strip {
+      max-width: 760px; margin: 0 auto;
+      padding: 0 24px 48px;
+      display: grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr));
+      gap: 10px;
+    }
+    .stat-tile {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 18px 16px;
+      transition: border-color .15s;
+    }
+    .stat-tile:hover { border-color: var(--muted); }
+    .stat-tile-label {
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: .07em; color: var(--muted); margin-bottom: 8px;
+    }
+    .stat-tile-val {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 22px; font-weight: 600;
+    }
+
+    /* NAV CARDS */
+    .cards-wrap {
+      max-width: 760px; margin: 0 auto;
+      padding: 0 24px 80px;
+      display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr));
+      gap: 14px;
+    }
+    .nav-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r); padding: 22px 20px;
+      text-decoration: none; color: var(--text);
+      display: flex; flex-direction: column; gap: 8px;
+      transition: border-color .15s, transform .15s;
+    }
+    .nav-card:hover { border-color: var(--blue); transform: translateY(-2px); }
+    .nav-card-icon {
+      font-size: 22px; margin-bottom: 4px;
+    }
+    .nav-card h3 { font-size: 15px; font-weight: 600; }
+    .nav-card p  { font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+    /* FOOTER */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 20px 24px;
+      text-align: center;
+      font-size: 13px; color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a class="nav-brand" href="home.html">
+    <div class="nav-logo">OX</div>
+    OnboardX
+  </a>
+  <ul class="nav-links">
+    <li><a href="home.html" class="active">Home</a></li>
+    <li><a href="status.html">Status</a></li>
+    <li><a href="mm.html">Maintenance</a></li>
+  </ul>
+  <div class="nav-sp"></div>
+  <a class="nav-status-pill pill-grey" id="navPill" href="status.html">
+    <span class="dot" id="navDot"></span>
+    <span id="navPillLabel">Loading…</span>
+  </a>
+</nav>
+
+<section class="hero">
+  <div class="hero-badge">⚡ Discord Bot</div>
+  <h1>Welcome to <span>OnboardX</span></h1>
+  <p>Manage your server with ease. Real-time cluster monitoring, automated onboarding, and more.</p>
+  <div class="hero-actions">
+    <a class="btn btn-primary" href="#">Add to Server</a>
+    <a class="btn btn-secondary" href="status.html">View Status</a>
+  </div>
+</section>
+
+<div class="stats-strip" id="statsStrip">
+  <div class="stat-tile"><div class="stat-tile-label">Clusters</div><div class="stat-tile-val" id="h-clusters">—</div></div>
+  <div class="stat-tile"><div class="stat-tile-label">Guilds</div><div class="stat-tile-val" id="h-guilds">—</div></div>
+  <div class="stat-tile"><div class="stat-tile-label">Users</div><div class="stat-tile-val" id="h-users">—</div></div>
+  <div class="stat-tile"><div class="stat-tile-label">Avg Ping</div><div class="stat-tile-val" id="h-ping">—</div></div>
+</div>
+
+<div class="cards-wrap">
+  <a class="nav-card" href="status.html">
+    <div class="nav-card-icon">📡</div>
+    <h3>Status</h3>
+    <p>Live cluster health, shard assignments, ping, and memory usage.</p>
+  </a>
+  <a class="nav-card" href="mm.html">
+    <div class="nav-card-icon">🔧</div>
+    <h3>Maintenance</h3>
+    <p>View scheduled and past maintenance windows and incident history.</p>
+  </a>
+</div>
+
+<footer>© 2026 OnboardX — All rights reserved</footer>
+
+<script type="module">
+  import { initializeApp }                 from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
+  import { getFirestore, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
+  import { firebaseConfig }               from "./config.js";
+
+  const db = getFirestore(initializeApp(firebaseConfig));
+
+  const navPill      = document.getElementById('navPill');
+  const navDot       = document.getElementById('navDot');
+  const navPillLabel = document.getElementById('navPillLabel');
+
+  onSnapshot(doc(db, 'system', 'clusterStatus'), snap => {
+    if (!snap.exists()) return;
+    const d = snap.data();
+
+    document.getElementById('h-clusters').textContent = fmt(d.clusterCount);
+    document.getElementById('h-guilds').textContent   = fmt(d.totalGuilds);
+    document.getElementById('h-users').textContent    = fmt(d.totalUsers);
+    document.getElementById('h-ping').textContent     = d.avgPingMs != null ? `${d.avgPingMs} ms` : '—';
+
+    const s = stateInfo(d.state);
+    navPill.className = `nav-status-pill ${s.pillCls}`;
+    navDot.className  = `dot live`;
+    navPillLabel.textContent = s.label;
+  });
+
+  function stateInfo(state) {
+    const map = {
+      running:  { pillCls: 'pill-green',  label: 'Operational'  },
+      degraded: { pillCls: 'pill-yellow', label: 'Partial Outage'},
+    };
+    return map[state] ?? { pillCls: 'pill-red', label: state === 'fatal' ? 'Major Outage' : 'Offline' };
+  }
+
+  function fmt(v) {
+    const n = Number(v);
+    return (v == null || isNaN(n)) ? '—' : n.toLocaleString();
+  }
+</script>
+</body>
+</html>

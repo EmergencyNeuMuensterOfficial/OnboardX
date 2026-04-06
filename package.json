@@ -1,0 +1,39 @@
+{
+  "name": "onboardx-v2",
+  "version": "2.0.0",
+  "description": "Production-ready, modular Discord bot with logging, verification, leveling, giveaways, and polls.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "start:shard": "node shard.js",
+    "start:cluster": "node -e \"process.env.CLUSTER_COUNT='4'; require('./shard.js')\"",
+    "dev": "nodemon index.js",
+    "dev:shard": "nodemon --watch . --ignore node_modules shard.js",
+    "deploy": "node handlers/deployCommands.js",
+    "lint": "eslint . --ext .js",
+    "start:cluster:win": "set CLUSTER_COUNT=4 && node shard.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "canvas": "^3.2.3",
+    "discord-hybrid-sharding": "^2.2.0",
+    "discord.js": "^14.15.3",
+    "dotenv": "^16.4.5",
+    "firebase-admin": "^12.0.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.5.0",
+    "nodemon": "^3.1.4"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "moderation",
+    "leveling",
+    "giveaway"
+  ],
+  "author": "OnboardX Team",
+  "license": "MIT"
+}

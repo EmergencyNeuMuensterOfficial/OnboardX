@@ -1,0 +1,15 @@
+# .dockerignore — keep the production image lean
+
+node_modules/
+npm-debug.log*
+.env
+.env.*
+!.env.example
+logs/
+*.log
+.git/
+.gitignore
+.DS_Store
+README.md
+monitoring/
+*.zip

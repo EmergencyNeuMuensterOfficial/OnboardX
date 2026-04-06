@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OnboardX – Status</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:      #0d1117;
+      --surface: #161b22;
+      --surface2:#1c2230;
+      --border:  #30363d;
+      --text:    #e6edf3;
+      --muted:   #7d8590;
+      --green:   #3fb950;
+      --yellow:  #d29922;
+      --red:     #f85149;
+      --blue:    #58a6ff;
+      --r:       10px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'IBM Plex Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    /* ── NAV ── */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(13,17,23,.95); backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      height: 56px; display: flex; align-items: center;
+      padding: 0 24px; gap: 24px;
+    }
+    .nav-brand { font-weight:700; font-size:16px; color:var(--text); text-decoration:none; display:flex; align-items:center; gap:8px; }
+    .nav-logo  { width:26px; height:26px; border-radius:6px; background:linear-gradient(135deg,#5865f2,#3b82f6); display:grid; place-items:center; font-size:11px; font-weight:800; color:#fff; }
+    .nav-links { display:flex; gap:2px; list-style:none; }
+    .nav-links a { padding:5px 10px; border-radius:6px; font-size:14px; color:var(--muted); text-decoration:none; transition:color .15s,background .15s; }
+    .nav-links a:hover { color:var(--text); background:rgba(255,255,255,.05); }
+    .nav-links a.active { color:var(--text); }
+    .nav-sp { flex:1; }
+    #countdown { font-size:12px; color:var(--muted); font-family:'IBM Plex Mono',monospace; }
+
+    /* ── LAYOUT ── */
+    .page { max-width: 960px; margin: 0 auto; padding: 40px 24px 80px; }
+    h1 { font-size:24px; font-weight:700; margin-bottom:4px; }
+    .subtitle { color:var(--muted); font-size:14px; margin-bottom:24px; }
+
+    /* ── ALERTS ── */
+    .alert { padding:12px 16px; border-radius:var(--r); font-size:14px; margin-bottom:12px; }
+    .alert-error  { background:rgba(248,81,73,.08);  border:1px solid rgba(248,81,73,.3);  color:var(--red); }
+    .alert-warn   { background:rgba(210,153,34,.08); border:1px solid rgba(210,153,34,.3); color:var(--yellow); }
+    .alert-info   { background:rgba(88,166,255,.08); border:1px solid rgba(88,166,255,.3); color:var(--blue); }
+
+    /* ── LEGEND ── */
+    .legend { display:flex; gap:18px; flex-wrap:wrap; margin-bottom:18px; }
+    .legend-item { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); }
+
+    /* ── DOTS ── */
+    .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; display:inline-block; }
+    .dot-green  { background:var(--green);  box-shadow:0 0 0 3px rgba(63,185,80,.2); }
+    .dot-yellow { background:var(--yellow); box-shadow:0 0 0 3px rgba(210,153,34,.2); }
+    .dot-red    { background:var(--red);    box-shadow:0 0 0 3px rgba(248,81,73,.2); }
+    .dot-grey   { background:#4a5568; }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(1.6)} }
+    .dot.live { animation:pulse 2.4s ease-in-out infinite; }
+
+    /* ── STATUS BANNER ── */
+    .status-banner {
+      display:flex; align-items:center; gap:12px;
+      padding:14px 20px; border-radius:var(--r); border:1px solid;
+      margin-bottom:24px; font-weight:600; font-size:15px; transition:all .3s;
+    }
+    .sb-green  { background:rgba(63,185,80,.07);  border-color:rgba(63,185,80,.3);  color:var(--green); }
+    .sb-yellow { background:rgba(210,153,34,.07); border-color:rgba(210,153,34,.3); color:var(--yellow); }
+    .sb-red    { background:rgba(248,81,73,.07);  border-color:rgba(248,81,73,.3);  color:var(--red); }
+    .sb-right  { margin-left:auto; font-size:12px; font-weight:400; opacity:.75; }
+
+    /* ── SECTION HEADING ── */
+    .sec-head {
+      font-size:12px; font-weight:600; text-transform:uppercase;
+      letter-spacing:.07em; color:var(--muted); margin:28px 0 12px;
+      display:flex; align-items:center; gap:12px;
+    }
+    .sec-head::after { content:''; flex:1; height:1px; background:var(--border); }
+
+    /* ── STAT GRID ── */
+    .stat-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin-bottom:4px; }
+    .stat-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r); padding:16px; transition:border-color .15s; }
+    .stat-card:hover { border-color:var(--muted); }
+    .stat-label { font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:7px; }
+    .stat-value { font-family:'IBM Plex Mono',monospace; font-size:20px; font-weight:600; }
+
+    /* ── VIEW TOGGLE ── */
+    .view-toggle-wrap { display:flex; align-items:center; gap:0; border:1px solid var(--border); border-radius:8px; overflow:hidden; width:fit-content; }
+    .toggle-btn {
+      padding:6px 14px; font-size:13px; font-weight:500;
+      background:transparent; color:var(--muted); border:0; cursor:pointer;
+      transition:all .15s;
+    }
+    .toggle-btn.active { background:var(--surface2); color:var(--text); }
+    .toggle-btn:hover:not(.active) { color:var(--text); background:rgba(255,255,255,.03); }
+
+    /* ── CLUSTER TABLE (normal view) ── */
+    .table-wrap { overflow-x:auto; border-radius:var(--r); border:1px solid var(--border); }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    thead tr { background:var(--surface2); }
+    th {
+      padding:10px 14px; text-align:left;
+      font-size:11px; font-weight:600; text-transform:uppercase;
+      letter-spacing:.07em; color:var(--muted);
+      border-bottom:1px solid var(--border); white-space:nowrap;
+    }
+    td { padding:10px 14px; border-bottom:1px solid rgba(48,54,61,.5); vertical-align:middle; white-space:nowrap; }
+    tbody tr:last-child td { border-bottom:0; }
+    tbody tr { transition:background .12s; }
+    tbody tr:hover { background:rgba(255,255,255,.02); }
+    .mono { font-family:'IBM Plex Mono',monospace; font-size:12px; }
+
+    /* ── BADGES ── */
+    .badge {
+      display:inline-flex; align-items:center; gap:5px;
+      padding:3px 9px; border-radius:999px;
+      font-size:11px; font-weight:600;
+    }
+    .badge-green  { background:rgba(63,185,80,.12);  color:var(--green); }
+    .badge-yellow { background:rgba(210,153,34,.12); color:var(--yellow); }
+    .badge-red    { background:rgba(248,81,73,.12);  color:var(--red); }
+    .badge-grey   { background:rgba(125,133,144,.1); color:var(--muted); }
+    .badge-blue   { background:rgba(88,166,255,.1);  color:var(--blue); }
+
+    /* ── SHARD CHIPS in normal view ── */
+    .shard-chips { display:flex; flex-wrap:wrap; gap:3px; max-width:180px; }
+    .shard-chip {
+      padding:1px 6px; border-radius:4px; font-family:'IBM Plex Mono',monospace; font-size:11px;
+      border:1px solid;
+    }
+    .sc-green  { background:rgba(63,185,80,.08);  border-color:rgba(63,185,80,.25);  color:var(--green); }
+    .sc-yellow { background:rgba(210,153,34,.08); border-color:rgba(210,153,34,.25); color:var(--yellow); }
+    .sc-red    { background:rgba(248,81,73,.08);  border-color:rgba(248,81,73,.25);  color:var(--red); }
+    .sc-grey   { background:rgba(125,133,144,.06);border-color:rgba(125,133,144,.2); color:var(--muted); }
+
+    /* ── DETAILED VIEW GRID ── */
+    .detail-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:12px; }
+    .cluster-detail-card {
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:var(--r); overflow:hidden; transition:border-color .15s;
+    }
+    .cluster-detail-card:hover { border-color:var(--muted); }
+    .cdc-head {
+      display:flex; align-items:center; gap:10px;
+      padding:12px 16px; border-bottom:1px solid var(--border);
+      background:var(--surface2);
+    }
+    .cdc-title { font-size:14px; font-weight:700; }
+    .cdc-body { padding:14px 16px; }
+
+    /* Shard rows inside detailed card */
+    .shard-row {
+      display:flex; align-items:center; gap:10px;
+      padding:7px 0; border-bottom:1px solid rgba(48,54,61,.4);
+      font-size:13px;
+    }
+    .shard-row:last-child { border-bottom:0; padding-bottom:0; }
+    .shard-id { font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:600; width:24px; color:var(--muted); flex-shrink:0; }
+    .shard-info { flex:1; display:flex; flex-wrap:wrap; gap:4px 12px; align-items:center; }
+    .shard-stat { font-size:11px; color:var(--muted); }
+    .shard-stat strong { color:var(--text); font-weight:500; }
+    .stale-badge { font-size:10px; font-weight:600; padding:1px 6px; border-radius:4px; background:rgba(210,153,34,.12); color:var(--yellow); border:1px solid rgba(210,153,34,.25); }
+
+    /* ── META ROW ── */
+    .meta-row {
+      display:flex; flex-wrap:wrap; gap:6px 18px;
+      font-size:12px; color:var(--muted);
+      padding:12px 16px; background:var(--surface);
+      border:1px solid var(--border); border-radius:var(--r); margin-top:12px;
+    }
+    .meta-row strong { color:var(--text); font-weight:500; }
+    .sep { color:var(--border); }
+
+    /* ── SKELETON ── */
+    .skel { background:linear-gradient(90deg,rgba(255,255,255,.04) 25%,rgba(255,255,255,.08) 50%,rgba(255,255,255,.04) 75%); background-size:200% 100%; animation:sh 1.5s infinite; border-radius:4px; display:inline-block; }
+    @keyframes sh { 0%{background-position:200% 0}100%{background-position:-200% 0} }
+
+    @media(max-width:600px) { .stat-grid{grid-template-columns:repeat(2,1fr)} .nav-links{display:none} }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a class="nav-brand" href="home.html"><div class="nav-logo">OX</div>OnboardX</a>
+  <ul class="nav-links">
+    <li><a href="home.html">Home</a></li>
+    <li><a href="status.html" class="active">Status</a></li>
+    <li><a href="mm.html">Maintenance</a></li>
+  </ul>
+  <div class="nav-sp"></div>
+  <span id="countdown">—</span>
+</nav>
+
+<main class="page">
+  <h1>Status</h1>
+  <p class="subtitle">Live cluster & shard health. Updates automatically from Firestore.</p>
+
+  <div id="alertError"  class="alert alert-error" hidden></div>
+  <div id="alertError2" class="alert alert-warn"  hidden></div>
+  <div id="alertMaint"  class="alert alert-info"  hidden></div>
+
+  <div class="legend">
+    <div class="legend-item"><span class="dot dot-green"></span>  Operational</div>
+    <div class="legend-item"><span class="dot dot-yellow"></span> Degraded</div>
+    <div class="legend-item"><span class="dot dot-red"></span>    Offline</div>
+  </div>
+
+  <div class="status-banner sb-red" id="statusBanner">
+    <span class="dot dot-red live" id="bannerDot"></span>
+    <span id="bannerLabel">Connecting…</span>
+    <span class="sb-right" id="bannerHost"></span>
+  </div>
+
+  <!-- Host Stats -->
+  <div class="sec-head">Host Stats</div>
+  <div class="stat-grid">
+    <div class="stat-card"><div class="stat-label">Clusters</div><div class="stat-value" id="s-clusters"><span class="skel" style="width:36px;height:18px"></span></div></div>
+    <div class="stat-card"><div class="stat-label">Total Guilds</div><div class="stat-value" id="s-guilds"><span class="skel" style="width:36px;height:18px"></span></div></div>
+    <div class="stat-card"><div class="stat-label">Total Users</div><div class="stat-value" id="s-users"><span class="skel" style="width:36px;height:18px"></span></div></div>
+    <div class="stat-card"><div class="stat-label">Avg Ping</div><div class="stat-value" id="s-ping"><span class="skel" style="width:50px;height:18px"></span></div></div>
+    <div class="stat-card"><div class="stat-label">Memory</div><div class="stat-value" id="s-mem"><span class="skel" style="width:50px;height:18px"></span></div></div>
+    <div class="stat-card"><div class="stat-label">Uptime</div><div class="stat-value" id="s-uptime"><span class="skel" style="width:40px;height:18px"></span></div></div>
+  </div>
+
+  <!-- Clusters / Shards heading + toggle -->
+  <div class="sec-head" style="margin-top:32px">
+    Clusters &amp; Shards
+    <div style="margin-left:auto">
+      <div class="view-toggle-wrap">
+        <button class="toggle-btn active" id="btnNormal"   onclick="setView('normal')">Normal</button>
+        <button class="toggle-btn"        id="btnDetailed" onclick="setView('detailed')">Detailed</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Normal view: clusters table -->
+  <div id="viewNormal">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Status</th>
+            <th>PID</th>
+            <th>Ping</th>
+            <th>Users</th>
+            <th>Shards</th>
+            <th>Process</th>
+            <th>Uptime</th>
+          </tr>
+        </thead>
+        <tbody id="clusterBody">
+          <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:28px">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Detailed view: one card per cluster, shards inside -->
+  <div id="viewDetailed" style="display:none">
+    <div class="detail-grid" id="detailGrid">
+      <div style="color:var(--muted);padding:28px;text-align:center">Loading…</div>
+    </div>
+  </div>
+
+  <div class="meta-row" id="metaRow">Connecting to Firestore…</div>
+</main>
+
+<script type="module">
+  import { initializeApp }                               from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
+  import { getFirestore, doc, collection,
+           onSnapshot, query, orderBy }                  from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
+  import { firebaseConfig }                              from "./config.js";
+
+  const db = getFirestore(initializeApp(firebaseConfig));
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  let clusters = {};   // { id -> clusterDoc }
+  let shards   = {};   // { shardId -> shardDoc }
+  let currentView = 'normal';
+
+  // ── Countdown ──────────────────────────────────────────────────────────────
+  let tick = 30;
+  setInterval(() => {
+    tick = Math.max(0, tick - 1);
+    document.getElementById('countdown').textContent = `Updates in ${tick}s`;
+  }, 1000);
+
+  // ── Main doc ───────────────────────────────────────────────────────────────
+  onSnapshot(doc(db, 'system', 'clusterStatus'), snap => {
+    tick = 30;
+    if (!snap.exists()) { showAlert('alertError','Document system/clusterStatus not found.'); return; }
+    hideAlert('alertError');
+    const d = snap.data();
+
+    if (d.error)          showAlert('alertError2', `⚠ Manager: ${d.error}`);
+    else                  hideAlert('alertError2');
+    if (d.maintenance?.enabled) showAlert('alertMaint', `🔧 Maintenance: ${d.maintenance.message ?? ''}`);
+    else                        hideAlert('alertMaint');
+
+    setOverallStatus(d.state);
+    document.getElementById('bannerHost').textContent =
+      d.host ? `${d.host}  ·  PID ${d.managerPid ?? '—'}` : '';
+
+    document.getElementById('s-clusters').textContent = fmt(d.clusterCount);
+    document.getElementById('s-guilds').textContent   = fmt(d.totalGuilds);
+    document.getElementById('s-users').textContent    = fmt(d.totalUsers);
+    document.getElementById('s-ping').textContent     = d.avgPingMs != null ? `${d.avgPingMs} ms` : '—';
+    document.getElementById('s-mem').textContent      = fmtMem(d.memoryMB);
+    document.getElementById('s-uptime').textContent   = d.bootedAt ? fmtUptime(null, null, d.bootedAt) : '—';
+
+    const ts = d.updatedAt?.toDate?.() ?? (d.lastSnapshotAt ? new Date(d.lastSnapshotAt) : null);
+    document.getElementById('metaRow').innerHTML = `
+      <span>Node <strong>${d.node??'—'}</strong></span><span class="sep">·</span>
+      <span>Platform <strong>${d.platform??'—'}</strong></span><span class="sep">·</span>
+      <span>Host <strong>${d.host??'—'}</strong></span><span class="sep">·</span>
+      <span>Sync <strong>${d.statusSyncMs ? d.statusSyncMs/1000+'s' : '—'}</strong></span><span class="sep">·</span>
+      <span>Snapshot <strong>${ts && !isNaN(ts) ? ts.toLocaleString() : '—'}</strong></span>
+    `;
+  }, err => showAlert('alertError', `Firestore: ${err.message}`));
+
+  // ── Clusters sub-collection ────────────────────────────────────────────────
+  onSnapshot(
+    query(collection(db, 'system', 'clusterStatus', 'clusters'), orderBy('__name__')),
+    snap => {
+      clusters = {};
+      snap.docs.forEach(d => { clusters[d.id] = d.data(); });
+      render();
+    }
+  );
+
+  // ── Shards sub-collection ──────────────────────────────────────────────────
+  onSnapshot(
+    query(collection(db, 'system', 'clusterStatus', 'shards'), orderBy('shardId')),
+    snap => {
+      shards = {};
+      snap.docs.forEach(d => { shards[d.data().shardId ?? d.id] = d.data(); });
+      render();
+    }
+  );
+
+  // ── Render dispatcher ──────────────────────────────────────────────────────
+  function render() {
+    if (currentView === 'normal') renderNormal();
+    else                          renderDetailed();
+  }
+
+  // ── Normal view ────────────────────────────────────────────────────────────
+  function renderNormal() {
+    const tbody = document.getElementById('clusterBody');
+    const cIds  = Object.keys(clusters).sort((a,b) => Number(a)-Number(b));
+
+    if (!cIds.length) {
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:28px">No clusters yet.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = cIds.map(id => {
+      const c   = clusters[id];
+      const st  = clusterHealthStatus(c);
+      const myShards = clusterShards(Number(id));
+      const uptimeSecs = c.uptime != null ? Math.floor(c.uptime/1000) : null;
+
+      const shardHtml = myShards.length
+        ? `<div class="shard-chips">${myShards.map(s => {
+            const ss = shardStatus(s);
+            return `<span class="shard-chip ${ss.chipCls}" title="Shard ${s.shardId}: ${ss.label}">${s.shardId}</span>`;
+          }).join('')}</div>`
+        : '<span style="color:var(--muted)">—</span>';
+
+      return `
+        <tr>
+          <td><strong>#${id}</strong></td>
+          <td><span class="badge ${st.badge}"><span class="dot ${st.dot}"></span>${st.label}</span></td>
+          <td class="mono">${c.pid??'—'}</td>
+          <td class="mono">${c.ping!=null ? c.ping+' ms' : '—'}</td>
+          <td>${fmt(c.users)}</td>
+          <td>${shardHtml}</td>
+          <td style="color:var(--muted);font-size:12px">${c.processState??c.state??'—'}</td>
+          <td class="mono">${uptimeSecs!=null ? fmtUptime(uptimeSecs) : '—'}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  // ── Detailed view ──────────────────────────────────────────────────────────
+  function renderDetailed() {
+    const grid = document.getElementById('detailGrid');
+    const cIds = Object.keys(clusters).sort((a,b) => Number(a)-Number(b));
+
+    if (!cIds.length) {
+      grid.innerHTML = `<div style="color:var(--muted);padding:28px;text-align:center">No clusters yet.</div>`;
+      return;
+    }
+
+    grid.innerHTML = cIds.map(id => {
+      const c  = clusters[id];
+      const st = clusterHealthStatus(c);
+      const myShards = clusterShards(Number(id));
+
+      const shardsHtml = myShards.length
+        ? myShards.map(s => {
+            const ss = shardStatus(s);
+            const lh = s.lastHeartbeatAt ? new Date(s.lastHeartbeatAt) : null;
+            const age = lh && !isNaN(lh) ? Math.floor((Date.now()-lh)/1000) : null;
+            const stale = age != null && age > 90;
+
+            return `
+              <div class="shard-row">
+                <span class="dot ${ss.dot}"></span>
+                <span class="shard-id">${s.shardId}</span>
+                <div class="shard-info">
+                  <span class="badge ${ss.badge}" style="font-size:10px;padding:2px 7px">${ss.label}</span>
+                  <span class="shard-stat">Ping <strong>${s.ping!=null?s.ping+' ms':'—'}</strong></span>
+                  <span class="shard-stat">Guilds <strong>${fmt(s.guilds)}</strong></span>
+                  <span class="shard-stat">Users <strong>${fmt(s.users)}</strong></span>
+                  ${stale ? `<span class="stale-badge" title="Last heartbeat ${fmtAge(age)} ago">Stale ${fmtAge(age)}</span>` : ''}
+                  ${!stale && lh ? `<span class="shard-stat" style="font-size:10px">♥ ${fmtAge(age)} ago</span>` : ''}
+                  <span class="shard-stat" style="font-size:10px">code <strong>${s.statusCode??'—'}</strong></span>
+                </div>
+              </div>
+            `;
+          }).join('')
+        : `<div style="color:var(--muted);font-size:13px;padding:8px 0">No shards assigned.</div>`;
+
+      return `
+        <div class="cluster-detail-card">
+          <div class="cdc-head">
+            <span class="badge ${st.badge}"><span class="dot ${st.dot}"></span>${st.label}</span>
+            <span class="cdc-title">Cluster #${id}</span>
+            <span style="margin-left:auto;font-size:12px;color:var(--muted)">
+              ${c.ping!=null?c.ping+' ms':'—'}
+            </span>
+          </div>
+          <div class="cdc-body">${shardsHtml}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // ── View toggle ────────────────────────────────────────────────────────────
+  window.setView = function(v) {
+    currentView = v;
+    document.getElementById('viewNormal').style.display   = v==='normal'   ? '' : 'none';
+    document.getElementById('viewDetailed').style.display = v==='detailed' ? '' : 'none';
+    document.getElementById('btnNormal').classList.toggle('active',   v==='normal');
+    document.getElementById('btnDetailed').classList.toggle('active', v==='detailed');
+    render();
+  };
+
+  // ── Status logic ───────────────────────────────────────────────────────────
+
+  /*
+   * Cluster status:
+   *  - ready=true AND ping>0                → Operational (green)
+   *  - ready=false OR ping=0, but pid exists → Degraded (yellow)  ← "dead = degraded" fix
+   *  - no pid / processState=stopped/fatal   → Offline (red)
+   */
+  function clusterHealthStatus(c) {
+    if (c.ready && c.ping > 0)
+      return { badge:'badge-green',  dot:'dot-green',  label:'Ready'    };
+    if (c.pid || (c.processState && c.processState !== 'stopped' && c.processState !== 'fatal'))
+      return { badge:'badge-yellow', dot:'dot-yellow', label:'Degraded' };
+    return   { badge:'badge-red',   dot:'dot-red',    label:'Offline'  };
+  }
+
+  /*
+   * Shard status — based on statusCode + state + heartbeat staleness:
+   *
+   * statusCode:
+   *  0 = READY        → green
+   *  1 = CONNECTING   → yellow
+   *  2 = RECONNECTING → yellow
+   *  3 = IDLE         → grey
+   *  4 = NEARLY       → yellow
+   *  5 = DISCONNECTED → red
+   *  6 = WAITING      → yellow
+   *  7 = IDENTIFYING  → yellow
+   *  8 = RESUMING     → yellow
+   *
+   * Additionally: if lastHeartbeatAt is >90s ago → mark stale (yellow override unless already red)
+   */
+  function shardStatus(s) {
+    const code = s.statusCode;
+    const lh   = s.lastHeartbeatAt ? new Date(s.lastHeartbeatAt) : null;
+    const age  = lh && !isNaN(lh) ? Math.floor((Date.now()-lh)/1000) : null;
+    const stale = age != null && age > 90;
+
+    // statusCode-based
+    const codeMap = {
+      0: { badge:'badge-green',  dot:'dot-green',  chipCls:'sc-green',  label:'Ready'        },
+      1: { badge:'badge-yellow', dot:'dot-yellow', chipCls:'sc-yellow', label:'Connecting'   },
+      2: { badge:'badge-yellow', dot:'dot-yellow', chipCls:'sc-yellow', label:'Reconnecting' },
+      3: { badge:'badge-grey',   dot:'dot-grey',   chipCls:'sc-grey',   label:'Idle'         },
+      4: { badge:'badge-yellow', dot:'dot-yellow', chipCls:'sc-yellow', label:'Nearly'       },
+      5: { badge:'badge-red',    dot:'dot-red',    chipCls:'sc-red',    label:'Disconnected' },
+      6: { badge:'badge-yellow', dot:'dot-yellow', chipCls:'sc-yellow', label:'Waiting'      },
+      7: { badge:'badge-yellow', dot:'dot-yellow', chipCls:'sc-yellow', label:'Identifying'  },
+      8: { badge:'badge-yellow', dot:'dot-yellow', chipCls:'sc-yellow', label:'Resuming'     },
+    };
+
+    let base = codeMap[code] ?? { badge:'badge-grey', dot:'dot-grey', chipCls:'sc-grey', label: s.state ?? '—' };
+
+    // If stale and not already red → degrade to yellow
+    if (stale && base.badge !== 'badge-red') {
+      base = { ...base, badge:'badge-yellow', dot:'dot-yellow', chipCls:'sc-yellow', label: base.label+' (stale)' };
+    }
+    return base;
+  }
+
+  function clusterShards(clusterId) {
+    return Object.values(shards)
+      .filter(s => s.clusterId === clusterId)
+      .sort((a,b) => a.shardId - b.shardId);
+  }
+
+  function setOverallStatus(state) {
+    const map = {
+      running:  { cls:'sb-green',  dot:'dot-green',  label:'All Systems Operational' },
+      degraded: { cls:'sb-yellow', dot:'dot-yellow', label:'Partial Outage'           },
+    };
+    const s = map[state] ?? { cls:'sb-red', dot:'dot-red', label: `Major Outage (${state??'unknown'})` };
+    document.getElementById('statusBanner').className = `status-banner ${s.cls}`;
+    document.getElementById('bannerDot').className    = `dot ${s.dot} live`;
+    document.getElementById('bannerLabel').textContent = s.label;
+  }
+
+  // ── Formatters ─────────────────────────────────────────────────────────────
+  function showAlert(id, msg) { const e=document.getElementById(id); e.textContent=msg; e.hidden=false; }
+  function hideAlert(id)      { document.getElementById(id).hidden=true; }
+
+  function fmt(v) {
+    const n = Number(v);
+    return (v==null||isNaN(n)) ? '—' : n.toLocaleString();
+  }
+  function fmtMem(mb) {
+    if (mb==null||isNaN(Number(mb))) return '—';
+    const n=Number(mb);
+    return n>=1024 ? `${(n/1024).toFixed(2)} GB` : `${n} MB`;
+  }
+  function fmtUptime(secs, _, bootedAt) {
+    const s = secs ?? Math.max(0, Math.floor((Date.now()-new Date(bootedAt))/1000));
+    if (isNaN(s)||s<0) return '—';
+    const d=Math.floor(s/86400), h=Math.floor((s%86400)/3600), m=Math.floor((s%3600)/60);
+    if(d>0) return `${d}d ${h}h`;
+    if(h>0) return `${h}h ${m}m`;
+    return `${m}m`;
+  }
+  function fmtAge(secs) {
+    if (secs==null) return '—';
+    if (secs < 60) return `${secs}s`;
+    const m=Math.floor(secs/60), s=secs%60;
+    if (m < 60) return `${m}m ${s}s`;
+    return `${Math.floor(m/60)}h ${m%60}m`;
+  }
+</script>
+</body>
+</html>

@@ -65,9 +65,46 @@ module.exports = {
 };
 
 // ── Handler: Slash Commands ───────────────────────────────────────────────────
+function wrapChatInputResponse(interaction) {
+  const originalReply = interaction.reply.bind(interaction);
+  const originalEditReply = interaction.editReply.bind(interaction);
+  const originalFollowUp = interaction.followUp.bind(interaction);
+
+  const stripForEdit = (options) => {
+    if (!options || typeof options !== 'object') return options;
+    if (Array.isArray(options)) return options;
+    const copy = { ...options };
+    delete copy.flags;
+    delete copy.ephemeral;
+    return copy;
+  };
+
+  interaction.reply = (options) => {
+    if (interaction.deferred) return originalEditReply(stripForEdit(options));
+    if (interaction.replied)  return originalFollowUp(options);
+    return originalReply(options);
+  };
+}
+
 async function handleSlash(interaction, client) {
+  wrapChatInputResponse(interaction);
+
   const command = client.commands.get(interaction.commandName);
   if (!command) return;
+
+  const autoDeferList = (process.env.AUTO_DEFER_COMMANDS ||
+    'config,logging,joinroles,levelrole,automod,welcome,ticket,giveaway,poll,premium,moderate,warn,verify'
+  ).split(',').map(s => s.trim()).filter(Boolean);
+  const autoDeferMs = parseInt(process.env.AUTO_DEFER_MS ?? '2200', 10);
+  const shouldAutoDefer = autoDeferMs > 0 && autoDeferList.includes(command.data?.name);
+
+  let deferTimer = null;
+  if (shouldAutoDefer) {
+    deferTimer = setTimeout(() => {
+      if (interaction.deferred || interaction.replied) return;
+      interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => {});
+    }, autoDeferMs);
+  }
 
   // Fetch guild config (for premium status etc.)
   const config = interaction.guild
@@ -96,13 +133,18 @@ async function handleSlash(interaction, client) {
 
   // Premium gate
   if (command.premium && !isPremium) {
+    if (deferTimer) clearTimeout(deferTimer);
     return interaction.reply({
       embeds: [embed.premiumRequired(command.data.name)],
       flags: MessageFlags.Ephemeral,
     });
   }
 
-  await command.execute(interaction, client, config);
+  try {
+    await command.execute(interaction, client, config);
+  } finally {
+    if (deferTimer) clearTimeout(deferTimer);
+  }
 }
 
 // ── Handler: Buttons ──────────────────────────────────────────────────────────

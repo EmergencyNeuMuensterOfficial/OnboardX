@@ -367,9 +367,10 @@
       const myShards = clusterShards(Number(id));
       const uptimeSecs = c.uptime != null ? Math.floor(c.uptime/1000) : null;
 
+      const clusterDead = st.badge === 'badge-red' || st.badge === 'badge-yellow';
       const shardHtml = myShards.length
         ? `<div class="shard-chips">${myShards.map(s => {
-            const ss = shardStatus(s);
+            const ss = shardStatus(s, clusterDead, st.badge === 'badge-red');
             return `<span class="shard-chip ${ss.chipCls}" title="Shard ${s.shardId}: ${ss.label}">${s.shardId}</span>`;
           }).join('')}</div>`
         : '<span style="color:var(--muted)">—</span>';
@@ -404,9 +405,11 @@
       const st = clusterHealthStatus(c);
       const myShards = clusterShards(Number(id));
 
+      const clusterDead    = st.badge === 'badge-red';
+      const clusterDegraded = st.badge === 'badge-yellow';
       const shardsHtml = myShards.length
         ? myShards.map(s => {
-            const ss = shardStatus(s);
+            const ss = shardStatus(s, clusterDegraded || clusterDead, clusterDead);
             const lh = s.lastHeartbeatAt ? new Date(s.lastHeartbeatAt) : null;
             const age = lh && !isNaN(lh) ? Math.floor((Date.now()-lh)/1000) : null;
             const stale = age != null && age > 90;
@@ -486,13 +489,26 @@
    *
    * Additionally: if lastHeartbeatAt is >90s ago → mark stale (yellow override unless already red)
    */
-  function shardStatus(s) {
+  /*
+   * shardStatus(s, clusterDegraded, clusterDead)
+   *
+   * If the parent cluster is DEAD (offline) → force all shards red "Process Dead"
+   *   regardless of what Firestore last stored — the process isn't updating them.
+   * If the parent cluster is DEGRADED → force shards yellow "Cluster Degraded"
+   *   unless the shard doc itself indicates a worse (red) state.
+   * Otherwise → derive from statusCode + heartbeat staleness as before.
+   */
+  function shardStatus(s, clusterDegraded = false, clusterDead = false) {
+    // ── Parent cluster is completely offline ───────────────────────────────
+    if (clusterDead) {
+      return { badge:'badge-red', dot:'dot-red', chipCls:'sc-red', label:'Process Dead' };
+    }
+
     const code = s.statusCode;
     const lh   = s.lastHeartbeatAt ? new Date(s.lastHeartbeatAt) : null;
     const age  = lh && !isNaN(lh) ? Math.floor((Date.now()-lh)/1000) : null;
     const stale = age != null && age > 90;
 
-    // statusCode-based
     const codeMap = {
       0: { badge:'badge-green',  dot:'dot-green',  chipCls:'sc-green',  label:'Ready'        },
       1: { badge:'badge-yellow', dot:'dot-yellow', chipCls:'sc-yellow', label:'Connecting'   },
@@ -507,10 +523,16 @@
 
     let base = codeMap[code] ?? { badge:'badge-grey', dot:'dot-grey', chipCls:'sc-grey', label: s.state ?? '—' };
 
-    // If stale and not already red → degrade to yellow
+    // ── Heartbeat stale → degrade to yellow unless already red ────────────
     if (stale && base.badge !== 'badge-red') {
       base = { ...base, badge:'badge-yellow', dot:'dot-yellow', chipCls:'sc-yellow', label: base.label+' (stale)' };
     }
+
+    // ── Parent cluster degraded → pull green shards down to yellow ────────
+    if (clusterDegraded && base.badge === 'badge-green') {
+      base = { ...base, badge:'badge-yellow', dot:'dot-yellow', chipCls:'sc-yellow', label: 'Cluster Degraded' };
+    }
+
     return base;
   }
 

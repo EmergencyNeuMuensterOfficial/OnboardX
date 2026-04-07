@@ -1,89 +1,85 @@
 /**
  * models/Warning.js
- * Persistent per-user warning records scoped to a guild.
- * Supports auto-punishment thresholds (configurable per guild).
+ * Persistent per-user warning records scoped to a guild in MongoDB.
  */
 
 'use strict';
 
 const db = require('../database/firebase');
 
-const COL = 'warnings';
+function col() {
+  return db.getCollection(db.COLLECTIONS.warnings);
+}
 
 class Warning {
-  /**
-   * Add a warning to a user in a guild.
-   * @returns {Promise<{id, count}>} The new warning doc and the user's total warning count.
-   */
   static async add(guildId, userId, { reason, moderatorId }) {
-    const ref = db.db.collection(COL).doc();
+    const now = new Date();
     const warning = {
-      id:          ref.id,
+      _id: db.createId(),
       guildId,
       userId,
-      reason:      reason || 'No reason provided',
+      reason: reason || 'No reason provided',
       moderatorId,
-      createdAt:   db.now(),
-      active:      true,   // false when pardoned
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+      pardonedAt: null,
     };
-    await ref.set(warning);
 
+    await col().insertOne(warning);
     const count = await Warning.count(guildId, userId);
-    return { warning, count };
+
+    return {
+      warning: normalize(warning),
+      count,
+    };
   }
 
-  /**
-   * Fetch all active warnings for a user in a guild.
-   */
   static async getAll(guildId, userId) {
-    const snap = await db.db.collection(COL)
-      .where('guildId', '==', guildId)
-      .where('userId',  '==', userId)
-      .where('active',  '==', true)
-      .orderBy('createdAt', 'desc')
-      .get();
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const docs = await col()
+      .find({ guildId, userId, active: true })
+      .sort({ createdAt: -1 })
+      .toArray();
+    return docs.map(normalize);
   }
 
-  /**
-   * Count active warnings for a user in a guild.
-   */
   static async count(guildId, userId) {
-    const snap = await db.db.collection(COL)
-      .where('guildId', '==', guildId)
-      .where('userId',  '==', userId)
-      .where('active',  '==', true)
-      .get();
-    return snap.size;
+    return col().countDocuments({ guildId, userId, active: true });
   }
 
-  /**
-   * Remove (pardon) a specific warning by ID.
-   * Returns false if the warning doesn't belong to this guild.
-   */
   static async remove(guildId, warningId) {
-    const ref  = db.db.collection(COL).doc(warningId);
-    const snap = await ref.get();
-    if (!snap.exists || snap.data().guildId !== guildId) return false;
-    await ref.update({ active: false, pardonedAt: db.now() });
-    return true;
+    const result = await col().updateOne(
+      { _id: warningId, guildId },
+      { $set: { active: false, pardonedAt: new Date(), updatedAt: new Date() } }
+    );
+    return result.modifiedCount > 0;
   }
 
-  /**
-   * Clear all warnings for a user in a guild.
-   */
   static async clearAll(guildId, userId) {
-    const snap = await db.db.collection(COL)
-      .where('guildId', '==', guildId)
-      .where('userId',  '==', userId)
-      .where('active',  '==', true)
-      .get();
+    const count = await Warning.count(guildId, userId);
+    if (count === 0) return 0;
 
-    const batch = db.db.batch();
-    snap.docs.forEach(d => batch.update(d.ref, { active: false, pardonedAt: db.now() }));
-    await batch.commit();
-    return snap.size;
+    await col().updateMany(
+      { guildId, userId, active: true },
+      { $set: { active: false, pardonedAt: new Date(), updatedAt: new Date() } }
+    );
+
+    return count;
   }
+}
+
+function normalize(doc) {
+  return {
+    id: doc._id,
+    guildId: doc.guildId,
+    userId: doc.userId,
+    reason: doc.reason,
+    moderatorId: doc.moderatorId,
+    active: Boolean(doc.active),
+    createdAt: db.toTimestamp(doc.createdAt),
+    pardonedAt: db.toTimestamp(doc.pardonedAt),
+    updatedAt: db.toTimestamp(doc.updatedAt),
+  };
 }
 
 module.exports = Warning;

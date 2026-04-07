@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OnboardX status - database</title>
+  <title>OnboardX status - API</title>
   <style>
     :root {
       --bg: #0b1020;
@@ -20,22 +20,11 @@
       margin: 0;
       min-height: 100vh;
       font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-      background: radial-gradient(circle at top left, rgba(90, 150, 255, 0.22), transparent 30%),
-                  linear-gradient(170deg, #070b16 0%, #0b1020 55%, #070b16 100%);
+      background: radial-gradient(circle at top left, rgba(90, 150, 255, 0.22), transparent 30%), linear-gradient(170deg, #070b16 0%, #0b1020 55%, #070b16 100%);
       color: var(--text);
     }
-    .wrap {
-      width: min(980px, calc(100% - 28px));
-      margin: 0 auto;
-      padding: 28px 0 50px;
-    }
-    .card {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      padding: 18px;
-      box-shadow: 0 16px 40px rgba(0,0,0,.28);
-    }
+    .wrap { width: min(980px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 50px; }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 18px; padding: 18px; box-shadow: 0 16px 40px rgba(0,0,0,.28); }
     h1 { margin: 0 0 8px; font-size: 28px; }
     .sub { color: var(--muted); line-height: 1.6; margin: 0 0 18px; }
     .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
@@ -50,40 +39,46 @@
     .error { color: var(--bad); font-weight: 700; margin-top: 14px; }
     .meta { color: var(--muted); font-size: 13px; margin-top: 14px; line-height: 1.6; }
   </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Status (API)</h1>
+      <p class="sub">This page now reads your hosted backend API instead of Firebase. If <code>expiresAt</code> is in the past, the system is treated as offline.</p>
+      <div id="status"></div>
+      <div class="row" id="stats" style="margin-top: 14px;"></div>
+      <div class="meta" id="meta"></div>
+      <div class="error" id="error"></div>
+    </div>
+  </div>
 
   <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
-    import { getFirestore, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
-import { firebaseConfig }                              from "./config.js";
-    // Paste your Firebase Web App config here. This is NOT a secret, but your Firestore rules must be read-only for public pages.
+    import { dashboardConfig, buildApiUrl, createHeaders } from "./config.js";
 
     const statusEl = document.getElementById('status');
-    const statsEl  = document.getElementById('stats');
-    const errorEl  = document.getElementById('error');
-    const metaEl   = document.getElementById('meta');
+    const statsEl = document.getElementById('stats');
+    const errorEl = document.getElementById('error');
+    const metaEl = document.getElementById('meta');
 
-    const app = initializeApp(firebaseConfig);
-    const db  = getFirestore(app);
-
-    onSnapshot(doc(db, "system", "clusterStatus"), (snap) => {
+    async function loadStatus() {
       errorEl.textContent = "";
-      if (!snap.exists()) {
+      try {
+        const res = await fetch(buildApiUrl(dashboardConfig.endpoints.systemStatus), {
+          headers: createHeaders({ Accept: "application/json" }),
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        const d = await res.json();
+        const stale = isStale(d?.expiresAt);
+        const state = stale ? "offline" : (d?.state || "unknown");
+        renderStatus(state, stale);
+        renderStats(d, stale);
+      } catch (err) {
+        errorEl.textContent = `API error: ${err.message}`;
         renderUnknown();
-        return;
       }
-
-      const d = snap.data();
-      const now = Date.now();
-      const expiresAt = parseDate(d.expiresAt);
-      const stale = expiresAt ? now > expiresAt.getTime() : false;
-
-      const state = stale ? "offline" : (d.state || "unknown");
-      renderStatus(state, stale);
-      renderStats(d, stale);
-    }, (err) => {
-      errorEl.textContent = `Firestore error: ${err.message}`;
-      renderUnknown();
-    });
+    }
 
     function renderUnknown() {
       statusEl.innerHTML = `<span class="pill bad">unknown</span>`;
@@ -98,20 +93,20 @@ import { firebaseConfig }                              from "./config.js";
     }
 
     function renderStats(d, stale) {
-      const last = parseDate(d.lastSnapshotAt);
-      const exp  = parseDate(d.expiresAt);
+      const last = parseDate(d?.lastSnapshotAt);
+      const exp = parseDate(d?.expiresAt);
       statsEl.innerHTML = [
-        card("Clusters", fmt(d.clusterCount)),
-        card("Ready Clusters", `${fmt(d.readyClusters)}/${fmt(d.clusterCount)}`),
-        card("Shards", fmt(d.totalShards)),
-        card("Ready Shards", `${fmt(d.readyShards)}/${fmt(d.totalShards)}`),
-        card("Guilds", fmt(d.totalGuilds)),
-        card("Users", fmt(d.totalUsers)),
+        card("Clusters", fmt(d?.clusterCount)),
+        card("Ready Clusters", `${fmt(d?.readyClusters)}/${fmt(d?.clusterCount)}`),
+        card("Shards", fmt(d?.totalShards)),
+        card("Ready Shards", `${fmt(d?.readyShards)}/${fmt(d?.totalShards)}`),
+        card("Guilds", fmt(d?.totalGuilds)),
+        card("Users", fmt(d?.totalUsers)),
       ].join("");
 
       metaEl.innerHTML =
-        `<div>Host: <code>${escapeHtml(d.host || "-")}</code></div>` +
-        `<div>Manager PID: <code>${escapeHtml(String(d.managerPid || "-"))}</code></div>` +
+        `<div>Host: <code>${escapeHtml(d?.host || "-")}</code></div>` +
+        `<div>Manager PID: <code>${escapeHtml(String(d?.managerPid || "-"))}</code></div>` +
         `<div>Last snapshot: <code>${escapeHtml(last ? last.toLocaleString() : "-")}</code></div>` +
         `<div>Expires at: <code>${escapeHtml(exp ? exp.toLocaleString() : "-")}</code> ${stale ? "(stale)" : ""}</div>`;
     }
@@ -131,6 +126,11 @@ import { firebaseConfig }                              from "./config.js";
       return Number.isNaN(d.getTime()) ? null : d;
     }
 
+    function isStale(expiresAt) {
+      const d = parseDate(expiresAt);
+      return Boolean(d && Date.now() > d.getTime());
+    }
+
     function escapeHtml(str) {
       return String(str)
         .replace(/&/g, "&amp;")
@@ -139,18 +139,9 @@ import { firebaseConfig }                              from "./config.js";
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
     }
+
+    loadStatus();
+    setInterval(loadStatus, dashboardConfig.refreshMs);
   </script>
-</head>
-<body>
-  <div class="wrap">
-    <div class="card">
-      <h1>Status (Firebase)</h1>
-      <p class="sub">This page keeps working even if the bot process is down, as long as Firestore is reachable. If <code>expiresAt</code> is in the past, the system is treated as offline.</p>
-      <div id="status"></div>
-      <div class="row" id="stats" style="margin-top: 14px;"></div>
-      <div class="meta" id="meta"></div>
-      <div class="error" id="error"></div>
-    </div>
-  </div>
 </body>
 </html>

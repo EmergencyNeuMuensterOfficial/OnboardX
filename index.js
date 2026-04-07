@@ -84,9 +84,9 @@ async function main() {
       logger.info(`${shardTag} Shards: [${hybridInfo.SHARD_LIST.join(', ')}] of ${hybridInfo.TOTAL_SHARDS} total`);
     }
 
-    // 1. Firebase
+    // 1. Database
     await firebase.init();
-    logger.info(`${shardTag} Firebase connected`);
+    logger.info(`${shardTag} MongoDB connected`);
 
     // 2. Commands + events
     await loadCommands(client);

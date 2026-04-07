@@ -1,61 +1,53 @@
 /**
  * models/Poll.js
- * Poll creation, voting, and retrieval from Firestore.
+ * Poll creation, voting, and retrieval backed by MongoDB.
  */
 
 'use strict';
 
 const db = require('../database/firebase');
 
-const COL = 'polls';
+function col() {
+  return db.getCollection(db.COLLECTIONS.polls);
+}
 
 class Poll {
-  /**
-   * Create a poll document.
-   */
   static async create(data) {
-    const ref  = db.db.collection(COL).doc();
+    const now = new Date();
     const poll = {
-      id:         ref.id,
-      guildId:    data.guildId,
-      channelId:  data.channelId,
-      messageId:  data.messageId  ?? null,
-      question:   data.question,
-      options:    data.options.map(label => ({ label, votes: 0 })),
-      anonymous:  data.anonymous  ?? false,
-      multiVote:  data.multiVote  ?? false,
-      voters:     {},   // { userId: [optionIndex, ...] }
-      ended:      false,
-      endsAt:     db.timestamp(data.endsAt),
-      createdBy:  data.createdBy,
-      createdAt:  db.now(),
+      _id: db.createId(),
+      guildId: data.guildId,
+      channelId: data.channelId,
+      messageId: data.messageId ?? null,
+      question: data.question,
+      options: data.options.map(label => ({ label, votes: 0 })),
+      anonymous: data.anonymous ?? false,
+      multiVote: data.multiVote ?? false,
+      voters: {},
+      ended: false,
+      endsAt: db.toDate(data.endsAt),
+      createdBy: data.createdBy,
+      createdAt: now,
+      updatedAt: now,
     };
-    await ref.set(poll);
-    return poll;
+
+    await col().insertOne(poll);
+    return normalize(poll);
   }
 
   static async get(id) {
-    return db.getDoc(db.db.collection(COL).doc(id));
+    const doc = await col().findOne({ _id: id });
+    return doc ? normalize(doc) : null;
   }
 
   static async getByMessage(messageId) {
-    const snap = await db.db.collection(COL)
-      .where('messageId', '==', messageId)
-      .limit(1)
-      .get();
-    if (snap.empty) return null;
-    return { id: snap.docs[0].id, ...snap.docs[0].data() };
+    const doc = await col().findOne({ messageId });
+    return doc ? normalize(doc) : null;
   }
 
-  /**
-   * Record a vote. Returns { success, alreadyVoted, invalidOption }
-   */
   static async vote(id, userId, optionIndex) {
-    const ref  = db.db.collection(COL).doc(id);
-    const snap = await ref.get();
-    if (!snap.exists) return { success: false };
-
-    const poll = snap.data();
+    const poll = await Poll.get(id);
+    if (!poll) return { success: false };
     if (poll.ended) return { success: false, ended: true };
     if (optionIndex < 0 || optionIndex >= poll.options.length) return { success: false, invalidOption: true };
 
@@ -64,30 +56,70 @@ class Poll {
     if (existing.includes(optionIndex)) return { success: false, alreadyVoted: true };
 
     const updatedOptions = [...poll.options];
-    updatedOptions[optionIndex] = { ...updatedOptions[optionIndex], votes: updatedOptions[optionIndex].votes + 1 };
+    updatedOptions[optionIndex] = {
+      ...updatedOptions[optionIndex],
+      votes: updatedOptions[optionIndex].votes + 1,
+    };
 
-    await ref.update({
-      options: updatedOptions,
-      [`voters.${userId}`]: db.admin.firestore.FieldValue.arrayUnion(optionIndex),
-    });
+    const nextVoters = { ...poll.voters, [userId]: [...existing, optionIndex] };
+
+    await col().updateOne(
+      { _id: id },
+      { $set: { options: updatedOptions, voters: nextVoters, updatedAt: new Date() } }
+    );
 
     return { success: true };
   }
 
   static async end(id) {
-    await db.setDoc(db.db.collection(COL).doc(id), { ended: true });
+    await col().updateOne({ _id: id }, { $set: { ended: true, updatedAt: new Date() } });
   }
 
   static async update(id, updates) {
-    await db.setDoc(db.db.collection(COL).doc(id), updates);
+    const current = await Poll.get(id);
+    if (!current) return null;
+
+    const next = {
+      guildId: updates.guildId ?? current.guildId,
+      channelId: updates.channelId ?? current.channelId,
+      messageId: updates.messageId ?? current.messageId ?? null,
+      question: updates.question ?? current.question,
+      options: updates.options ?? current.options,
+      anonymous: updates.anonymous ?? current.anonymous,
+      multiVote: updates.multiVote ?? current.multiVote,
+      voters: updates.voters ?? current.voters ?? {},
+      ended: updates.ended ?? current.ended,
+      endsAt: db.toDate(updates.endsAt ?? current.endsAt),
+      createdBy: updates.createdBy ?? current.createdBy,
+      updatedAt: new Date(),
+    };
+
+    await col().updateOne({ _id: id }, { $set: next });
+    return Poll.get(id);
   }
 
-  /**
-   * Total votes across all options.
-   */
   static totalVotes(poll) {
-    return poll.options.reduce((acc, o) => acc + o.votes, 0);
+    return poll.options.reduce((acc, option) => acc + option.votes, 0);
   }
+}
+
+function normalize(doc) {
+  return {
+    id: doc._id,
+    guildId: doc.guildId,
+    channelId: doc.channelId,
+    messageId: doc.messageId ?? null,
+    question: doc.question,
+    options: Array.isArray(doc.options) ? doc.options : [],
+    anonymous: Boolean(doc.anonymous),
+    multiVote: Boolean(doc.multiVote),
+    voters: doc.voters ?? {},
+    ended: Boolean(doc.ended),
+    endsAt: db.toTimestamp(doc.endsAt),
+    createdBy: doc.createdBy,
+    createdAt: db.toTimestamp(doc.createdAt),
+    updatedAt: db.toTimestamp(doc.updatedAt),
+  };
 }
 
 module.exports = Poll;

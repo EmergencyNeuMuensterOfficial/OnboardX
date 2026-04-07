@@ -1,130 +1,434 @@
 /**
  * database/firebase.js
- * Initialises Firebase Admin SDK and exports scoped Firestore helpers.
- * All database interactions go through this module.
+ * MongoDB-backed compatibility layer. The file name stays the same so the rest
+ * of the codebase can keep its existing imports while the storage backend uses
+ * MongoDB instead of Firebase/MariaDB.
  */
 
 'use strict';
 
-const admin  = require('firebase-admin');
+const { MongoClient } = require('mongodb');
+const { randomUUID } = require('crypto');
 const logger = require('../utils/logger');
 
+let client;
 let db;
+let indexesReady = false;
 
-/**
- * Initialise Firebase once. Idempotent — safe to call multiple times.
- */
-async function init() {
-  if (admin.apps.length) return; // Already initialised
+const COLLECTIONS = {
+  guildConfigs: 'guild_configs',
+  guildUserXp: 'guild_user_xp',
+  giveaways: 'giveaways',
+  polls: 'polls',
+  ticketCounters: 'ticket_counters',
+  tickets: 'tickets',
+  warnings: 'warnings',
+  systemDocs: 'system_docs',
+  clusterStatuses: 'cluster_statuses',
+  shardStatuses: 'shard_statuses',
+};
 
-  const serviceAccount = {
-    type: 'service_account',
-    project_id:                process.env.FIREBASE_PROJECT_ID,
-    private_key_id:            process.env.FIREBASE_PRIVATE_KEY_ID,
-    private_key:               (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
-    client_email:              process.env.FIREBASE_CLIENT_EMAIL,
-    client_id:                 process.env.FIREBASE_CLIENT_ID,
-    auth_uri:                  'https://accounts.google.com/o/oauth2/auth',
-    token_uri:                 'https://oauth2.googleapis.com/token',
+function getEnv(name, fallback = null) {
+  return process.env[name] ?? fallback;
+}
+
+function mongoConfig() {
+  const uri = getEnv('MONGODB_URI', 'mongodb://127.0.0.1:27017');
+  const isSrv = uri.startsWith('mongodb+srv://');
+
+  return {
+    uri,
+    database: getEnv('MONGODB_DATABASE', getEnv('DB_NAME', 'onboardx')),
+    options: {
+      ignoreUndefined: true,
+      retryWrites: getEnv('MONGODB_RETRY_WRITES', 'true') === 'true',
+      serverSelectionTimeoutMS: Number(getEnv('MONGODB_SERVER_SELECTION_TIMEOUT_MS', '15000')),
+      connectTimeoutMS: Number(getEnv('MONGODB_CONNECT_TIMEOUT_MS', '15000')),
+      socketTimeoutMS: Number(getEnv('MONGODB_SOCKET_TIMEOUT_MS', '45000')),
+      maxPoolSize: Number(getEnv('MONGODB_MAX_POOL_SIZE', '20')),
+      minPoolSize: Number(getEnv('MONGODB_MIN_POOL_SIZE', '0')),
+      family: Number(getEnv('MONGODB_IP_FAMILY', '4')),
+      directConnection: getEnv('MONGODB_DIRECT_CONNECTION', 'false') === 'true',
+      tls: getEnv('MONGODB_TLS', isSrv ? 'true' : 'false') === 'true',
+      tlsInsecure: getEnv('MONGODB_TLS_INSECURE', 'false') === 'true',
+      tlsAllowInvalidCertificates: getEnv('MONGODB_TLS_ALLOW_INVALID_CERTIFICATES', 'false') === 'true',
+      tlsAllowInvalidHostnames: getEnv('MONGODB_TLS_ALLOW_INVALID_HOSTNAMES', 'false') === 'true',
+      tlsCAFile: getEnv('MONGODB_TLS_CA_FILE', undefined),
+      servername: getEnv('MONGODB_TLS_SERVER_NAME', undefined),
+    },
   };
-
-  admin.initializeApp({
-    credential:  admin.credential.cert(serviceAccount),
-    databaseURL: process.env.FIREBASE_DATABASE_URL,
-  });
-
-  db = admin.firestore();
-
-  // Use Firestore settings that improve performance at scale
-  db.settings({ ignoreUndefinedProperties: true });
-
-  logger.debug('Firebase Admin SDK initialised.');
 }
 
-/**
- * Get a guild's config document reference.
- * @param {string} guildId
- */
-const guildRef  = (guildId)         => db.collection('guilds').doc(guildId);
-const userRef   = (guildId, userId) => db.collection('guilds').doc(guildId)
-                                          .collection('users').doc(userId);
-const xpRef     = (guildId)         => db.collection('guilds').doc(guildId)
-                                          .collection('users');
-const giveRef   = (guildId)         => db.collection('giveaways').where('guildId', '==', guildId);
-const pollRef   = (pollId)          => db.collection('polls').doc(pollId);
-const premRef   = (guildId)         => db.collection('premium').doc(guildId);
-const systemRef = (docId)           => db.collection('system').doc(docId);
-const clusterRef = (clusterId)      => systemRef('clusterStatus').collection('clusters').doc(String(clusterId));
-const shardRef  = (shardId)         => systemRef('clusterStatus').collection('shards').doc(String(shardId));
+async function init() {
+  if (db) return;
 
-// ── Generic Helpers ───────────────────────────────────────────────────────────
+  const config = mongoConfig();
+  client = new MongoClient(config.uri, config.options);
 
-/**
- * Fetch a document; returns data or null.
- */
-async function getDoc(ref) {
-  const snap = await ref.get();
-  return snap.exists ? { id: snap.id, ...snap.data() } : null;
-}
-
-/**
- * Set/merge a document.
- */
-async function setDoc(ref, data, merge = true) {
-  await ref.set(
-    { ...data, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
-    { merge }
-  );
-}
-
-/**
- * Delete a document.
- */
-async function deleteDoc(ref) {
-  await ref.delete();
-}
-
-/**
- * Increment a numeric field atomically.
- */
-function increment(n = 1) {
-  return admin.firestore.FieldValue.increment(n);
-}
-
-/**
- * Server timestamp shortcut.
- */
-function now() {
-  return admin.firestore.FieldValue.serverTimestamp();
-}
-
-/**
- * Timestamp from a JS Date / ms value.
- */
-function timestamp(date) {
-  return admin.firestore.Timestamp.fromDate(
-    date instanceof Date ? date : new Date(date)
-  );
-}
-
-/**
- * Batch write helper — auto-commits.
- */
-async function batchWrite(operations) {
-  const batch = db.batch();
-  for (const { ref, data, type } of operations) {
-    if (type === 'delete') batch.delete(ref);
-    else if (type === 'set')    batch.set(ref, data, { merge: true });
-    else                        batch.update(ref, data);
+  try {
+    await client.connect();
+  } catch (err) {
+    logger.error(
+      `MongoDB connection failed: ${err.message}. ` +
+      `uri=${maskMongoUri(config.uri)} tls=${String(config.options.tls)} directConnection=${String(config.options.directConnection)}`
+    );
+    throw err;
   }
-  await batch.commit();
+  db = client.db(config.database);
+  await ensureIndexes();
+  logger.debug(`MongoDB initialised on database "${config.database}".`);
+}
+
+async function ensureIndexes() {
+  if (indexesReady) return;
+
+  await Promise.all([
+    getCollection(COLLECTIONS.guildUserXp).createIndex({ guildId: 1, totalXp: -1, userId: 1 }),
+    getCollection(COLLECTIONS.guildUserXp).createIndex({ guildId: 1, userId: 1 }, { unique: true }),
+    getCollection(COLLECTIONS.giveaways).createIndex({ messageId: 1 }, { sparse: true }),
+    getCollection(COLLECTIONS.giveaways).createIndex({ ended: 1, endsAt: 1 }),
+    getCollection(COLLECTIONS.polls).createIndex({ messageId: 1 }, { sparse: true }),
+    getCollection(COLLECTIONS.polls).createIndex({ ended: 1, endsAt: 1 }),
+    getCollection(COLLECTIONS.tickets).createIndex({ threadId: 1 }, { unique: true }),
+    getCollection(COLLECTIONS.tickets).createIndex({ guildId: 1, status: 1, createdAt: -1 }),
+    getCollection(COLLECTIONS.warnings).createIndex({ guildId: 1, userId: 1, active: 1, createdAt: -1 }),
+    getCollection(COLLECTIONS.clusterStatuses).createIndex({ clusterId: 1 }, { unique: true }),
+    getCollection(COLLECTIONS.shardStatuses).createIndex({ shardId: 1 }, { unique: true }),
+  ]);
+
+  indexesReady = true;
+}
+
+function getCollection(name) {
+  if (!db) throw new Error('Database not initialised. Call init() first.');
+  return db.collection(name);
+}
+
+function guildRef(guildId) {
+  return { kind: 'guild', guildId: String(guildId) };
+}
+
+function userRef(guildId, userId) {
+  return { kind: 'userXP', guildId: String(guildId), userId: String(userId) };
+}
+
+function xpRef(guildId) {
+  return { kind: 'xpCollection', guildId: String(guildId) };
+}
+
+function giveRef(guildId) {
+  return { kind: 'giveawaysByGuild', guildId: String(guildId) };
+}
+
+function pollRef(pollId) {
+  return { kind: 'poll', pollId: String(pollId) };
+}
+
+function premRef(guildId) {
+  return { kind: 'premium', guildId: String(guildId) };
+}
+
+function systemRef(docId) {
+  return { kind: 'system', docId: String(docId) };
+}
+
+function clusterRef(clusterId) {
+  return { kind: 'cluster', clusterId: String(clusterId) };
+}
+
+function shardRef(shardId) {
+  return { kind: 'shard', shardId: String(shardId) };
+}
+
+async function getDoc(ref) {
+  switch (ref.kind) {
+    case 'guild': {
+      const doc = await getCollection(COLLECTIONS.guildConfigs).findOne({ _id: ref.guildId });
+      return doc ? withTimestamps(doc) : null;
+    }
+    case 'userXP': {
+      const doc = await getCollection(COLLECTIONS.guildUserXp).findOne({ _id: xpKey(ref.guildId, ref.userId) });
+      return doc ? withTimestamps(doc) : null;
+    }
+    case 'system': {
+      const doc = await getCollection(COLLECTIONS.systemDocs).findOne({ _id: ref.docId });
+      return doc ? withTimestamps({ id: ref.docId, ...doc }) : null;
+    }
+    case 'cluster': {
+      const doc = await getCollection(COLLECTIONS.clusterStatuses).findOne({ _id: ref.clusterId });
+      return doc ? withTimestamps(doc) : null;
+    }
+    case 'shard': {
+      const doc = await getCollection(COLLECTIONS.shardStatuses).findOne({ _id: ref.shardId });
+      return doc ? withTimestamps(doc) : null;
+    }
+    default:
+      throw new Error(`Unsupported ref kind for getDoc(): ${ref.kind}`);
+  }
+}
+
+async function setDoc(ref, data, merge = true) {
+  const nowDate = new Date();
+
+  switch (ref.kind) {
+    case 'guild': {
+      const collection = getCollection(COLLECTIONS.guildConfigs);
+      const current = merge ? await collection.findOne({ _id: ref.guildId }) : null;
+      const next = merge ? deepMerge(stripMeta(current), data) : { ...data };
+      await collection.updateOne(
+        { _id: ref.guildId },
+        {
+          $set: sanitizeDocument({ ...next, guildId: ref.guildId, updatedAt: nowDate }),
+          $setOnInsert: { createdAt: nowDate },
+        },
+        { upsert: true }
+      );
+      return;
+    }
+    case 'userXP': {
+      await getCollection(COLLECTIONS.guildUserXp).updateOne(
+        { _id: xpKey(ref.guildId, ref.userId) },
+        {
+          $set: sanitizeDocument({
+            guildId: ref.guildId,
+            userId: ref.userId,
+            xp: Number(data.xp ?? 0),
+            level: Number(data.level ?? 0),
+            totalXp: Number(data.totalXp ?? 0),
+            messages: Number(data.messages ?? 0),
+            updatedAt: nowDate,
+          }),
+          $setOnInsert: { createdAt: nowDate },
+        },
+        { upsert: true }
+      );
+      return;
+    }
+    case 'system': {
+      const collection = getCollection(COLLECTIONS.systemDocs);
+      const current = merge ? await collection.findOne({ _id: ref.docId }) : null;
+      const next = merge ? deepMerge(stripMeta(current), data) : { ...data };
+      await collection.updateOne(
+        { _id: ref.docId },
+        {
+          $set: sanitizeDocument({ ...next, updatedAt: nowDate }),
+          $setOnInsert: { createdAt: nowDate },
+        },
+        { upsert: true }
+      );
+      return;
+    }
+    case 'cluster': {
+      const collection = getCollection(COLLECTIONS.clusterStatuses);
+      const current = merge ? await collection.findOne({ _id: ref.clusterId }) : null;
+      const next = merge ? deepMerge(stripMeta(current), data) : { ...data };
+      await collection.updateOne(
+        { _id: ref.clusterId },
+        {
+          $set: sanitizeDocument({ ...next, clusterId: Number(ref.clusterId), updatedAt: nowDate }),
+          $setOnInsert: { createdAt: nowDate },
+        },
+        { upsert: true }
+      );
+      return;
+    }
+    case 'shard': {
+      const collection = getCollection(COLLECTIONS.shardStatuses);
+      const current = merge ? await collection.findOne({ _id: ref.shardId }) : null;
+      const next = merge ? deepMerge(stripMeta(current), data) : { ...data };
+      await collection.updateOne(
+        { _id: ref.shardId },
+        {
+          $set: sanitizeDocument({ ...next, shardId: Number(ref.shardId), updatedAt: nowDate }),
+          $setOnInsert: { createdAt: nowDate },
+        },
+        { upsert: true }
+      );
+      return;
+    }
+    default:
+      throw new Error(`Unsupported ref kind for setDoc(): ${ref.kind}`);
+  }
+}
+
+async function deleteDoc(ref) {
+  switch (ref.kind) {
+    case 'guild':
+      await getCollection(COLLECTIONS.guildConfigs).deleteOne({ _id: ref.guildId });
+      return;
+    case 'userXP':
+      await getCollection(COLLECTIONS.guildUserXp).deleteOne({ _id: xpKey(ref.guildId, ref.userId) });
+      return;
+    case 'system':
+      await getCollection(COLLECTIONS.systemDocs).deleteOne({ _id: ref.docId });
+      return;
+    case 'cluster':
+      await getCollection(COLLECTIONS.clusterStatuses).deleteOne({ _id: ref.clusterId });
+      return;
+    case 'shard':
+      await getCollection(COLLECTIONS.shardStatuses).deleteOne({ _id: ref.shardId });
+      return;
+    default:
+      throw new Error(`Unsupported ref kind for deleteDoc(): ${ref.kind}`);
+  }
+}
+
+async function query() {
+  throw new Error('db.query() is no longer supported after the MongoDB migration. Update the caller to use Mongo collection helpers.');
+}
+
+async function one() {
+  throw new Error('db.one() is no longer supported after the MongoDB migration. Update the caller to use Mongo collection helpers.');
+}
+
+async function transaction(fn) {
+  if (!client) throw new Error('Database not initialised. Call init() first.');
+
+  const session = client.startSession();
+  try {
+    let result;
+    await session.withTransaction(async () => {
+      result = await fn({ session, db });
+    });
+    return result;
+  } finally {
+    await session.endSession();
+  }
+}
+
+function xpKey(guildId, userId) {
+  return `${guildId}:${userId}`;
+}
+
+function now() {
+  return new Date();
+}
+
+function timestamp(date) {
+  return toDate(date);
+}
+
+function createId() {
+  return randomUUID().replace(/-/g, '');
+}
+
+function parseJson(value, fallback = null) {
+  if (value == null || value === '') return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function stringifyJson(value) {
+  return JSON.stringify(value ?? null);
+}
+
+function toDate(value) {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value?.toDate === 'function') return value.toDate();
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function toTimestamp(value) {
+  const date = toDate(value);
+  if (!date) return null;
+  return {
+    toDate: () => new Date(date.getTime()),
+    toMillis: () => date.getTime(),
+    valueOf: () => date.getTime(),
+    toJSON: () => date.toISOString(),
+    toString: () => date.toISOString(),
+  };
+}
+
+function withTimestamps(doc) {
+  if (!doc) return null;
+
+  const normalized = { ...doc };
+  if (normalized._id != null && normalized.id == null) normalized.id = normalized._id;
+  delete normalized._id;
+
+  if (normalized.createdAt) normalized.createdAt = toTimestamp(normalized.createdAt);
+  if (normalized.updatedAt) normalized.updatedAt = toTimestamp(normalized.updatedAt);
+  if (normalized.endsAt) normalized.endsAt = toTimestamp(normalized.endsAt);
+  if (normalized.closedAt) normalized.closedAt = toTimestamp(normalized.closedAt);
+  if (normalized.pardonedAt) normalized.pardonedAt = toTimestamp(normalized.pardonedAt);
+
+  return normalized;
+}
+
+function stripMeta(doc) {
+  if (!doc) return {};
+  const copy = { ...doc };
+  delete copy._id;
+  delete copy.id;
+  delete copy.createdAt;
+  delete copy.updatedAt;
+  return copy;
+}
+
+function sanitizeDocument(value) {
+  if (Array.isArray(value)) {
+    return value.map(sanitizeDocument);
+  }
+
+  if (value && typeof value === 'object') {
+    if (value instanceof Date) return value;
+    if (typeof value.toDate === 'function') return value.toDate();
+
+    const output = {};
+    for (const [key, inner] of Object.entries(value)) {
+      if (inner === undefined) continue;
+      output[key] = sanitizeDocument(inner);
+    }
+    return output;
+  }
+
+  return value;
+}
+
+function deepMerge(target, source) {
+  const output = Array.isArray(target) ? [...target] : { ...(target ?? {}) };
+  for (const [key, value] of Object.entries(source ?? {})) {
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      !(value instanceof Date) &&
+      typeof value.toDate !== 'function' &&
+      output[key] &&
+      typeof output[key] === 'object' &&
+      !Array.isArray(output[key]) &&
+      !(output[key] instanceof Date)
+    ) {
+      output[key] = deepMerge(output[key], value);
+    } else {
+      output[key] = value;
+    }
+  }
+  return output;
+}
+
+function maskMongoUri(uri) {
+  return String(uri).replace(/\/\/([^:\/]+):([^@]+)@/, '//$1:***@');
 }
 
 module.exports = {
   init,
-  get db() { return db; },
-  admin,
-  // Ref helpers
+  query,
+  one,
+  transaction,
+  parseJson,
+  stringifyJson,
+  createId,
+  now,
+  timestamp,
+  toDate,
+  toTimestamp,
   guildRef,
   userRef,
   xpRef,
@@ -134,12 +438,15 @@ module.exports = {
   systemRef,
   clusterRef,
   shardRef,
-  // Data helpers
+  getCollection,
   getDoc,
   setDoc,
   deleteDoc,
-  increment,
-  now,
-  timestamp,
-  batchWrite,
+  get db() {
+    return db;
+  },
+  get client() {
+    return client;
+  },
+  COLLECTIONS,
 };

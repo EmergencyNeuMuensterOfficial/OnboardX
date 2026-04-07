@@ -160,7 +160,7 @@ module.exports = {
 
       return interaction.reply({
         embeds: [embed.success('Module Updated', `**${name}** has been **${enabled ? 'enabled' : 'disabled'}**.`)],
-        flags: MessageFlags.Ephemeral,
+        flags: 64,
       });
     }
 
@@ -173,7 +173,7 @@ module.exports = {
 
       return interaction.reply({
         embeds: [embed.success('Log Channel Set', `Logs will be posted in ${channel}.`)],
-        flags: MessageFlags.Ephemeral,
+        flags: 64,
       });
     }
 
@@ -188,7 +188,7 @@ module.exports = {
 
       return interaction.reply({
         embeds: [embed.success('Logging Updated', `**${event}** logging is now **${enabled ? 'enabled' : 'disabled'}**.`)],
-        flags: MessageFlags.Ephemeral,
+        flags: 64,
       });
     }
 
@@ -200,7 +200,7 @@ module.exports = {
       if (type === 'image' && !guildCfg?.premium) {
         return interaction.reply({
           embeds: [embed.premiumRequired('Image CAPTCHA')],
-          flags: MessageFlags.Ephemeral,
+          flags: 64,
         });
       }
 
@@ -216,7 +216,7 @@ module.exports = {
 
       return interaction.reply({
         embeds: [embed.success('Verification Configured', `Panel posted in ${channel}. Role: ${role}.`)],
-        flags: MessageFlags.Ephemeral,
+        flags: 64,
       });
     }
 
@@ -235,14 +235,14 @@ module.exports = {
       if (!Object.keys(updates).length) {
         return interaction.reply({
           embeds: [embed.warn('Nothing Updated', 'Please provide at least one option to update.')],
-          flags: MessageFlags.Ephemeral,
+          flags: 64,
         });
       }
 
       await GuildConfig.update(interaction.guild.id, updates);
       return interaction.reply({
         embeds: [embed.success('Leveling Updated', 'Leveling settings saved.')],
-        flags: MessageFlags.Ephemeral,
+        flags: 64,
       });
     }
 
@@ -261,7 +261,7 @@ module.exports = {
       if (!Object.keys(updates).length) {
         return interaction.reply({
           embeds: [embed.warn('Nothing Updated', 'Provide at least one welcome setting to change.')],
-          flags: MessageFlags.Ephemeral,
+          flags: 64,
         });
       }
 
@@ -269,7 +269,7 @@ module.exports = {
       await GuildConfig.update(interaction.guild.id, updates);
       return interaction.reply({
         embeds: [embed.success('Welcome Updated', 'Welcome and farewell settings were saved.')],
-        flags: MessageFlags.Ephemeral,
+        flags: 64,
       });
     }
 
@@ -284,14 +284,14 @@ module.exports = {
       if (!Object.keys(updates).length) {
         return interaction.reply({
           embeds: [embed.warn('Nothing Updated', 'Provide at least one ticket setting to change.')],
-          flags: MessageFlags.Ephemeral,
+          flags: 64,
         });
       }
 
       await GuildConfig.update(interaction.guild.id, updates);
       return interaction.reply({
         embeds: [embed.success('Tickets Updated', 'Ticket settings were saved.')],
-        flags: MessageFlags.Ephemeral,
+        flags: 64,
       });
     }
 
@@ -306,14 +306,14 @@ module.exports = {
       if (!Object.keys(updates).length) {
         return interaction.reply({
           embeds: [embed.warn('Nothing Updated', 'Provide at least one manager role to change.')],
-          flags: MessageFlags.Ephemeral,
+          flags: 64,
         });
       }
 
       await GuildConfig.update(interaction.guild.id, updates);
       return interaction.reply({
         embeds: [embed.success('Manager Roles Updated', 'Giveaway and poll manager roles were saved.')],
-        flags: MessageFlags.Ephemeral,
+        flags: 64,
       });
     }
 
@@ -344,7 +344,7 @@ module.exports = {
         .setTitle(`Config - ${interaction.guild.name}`)
         .addFields(fields);
 
-      return interaction.reply({ embeds: [viewEmbed], flags: MessageFlags.Ephemeral });
+      return interaction.reply({ embeds: [viewEmbed], flags: 64 });
     }
   },
 };

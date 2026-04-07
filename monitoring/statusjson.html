@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OnboardX statusjson</title>
+  <style>
+    :root {
+      --bg: #070b16;
+      --panel: rgba(15, 26, 48, 0.78);
+      --border: rgba(160, 200, 255, 0.14);
+      --text: #eef6ff;
+      --muted: #9bb0c8;
+      --accent: #74c5ff;
+      --accent2: #8f82ff;
+      --bad: #ff6f6f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(116, 197, 255, 0.18), transparent 32%),
+        radial-gradient(circle at top right, rgba(143, 130, 255, 0.16), transparent 30%),
+        linear-gradient(165deg, #050814 0%, #070b16 55%, #050814 100%);
+    }
+    .wrap { width: min(900px, calc(100% - 28px)); margin: 0 auto; padding: 26px 0 54px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: 0 16px 44px rgba(0,0,0,.28);
+    }
+    h1 { margin: 0 0 8px; font-size: 22px; letter-spacing: -0.02em; }
+    .sub { margin: 0 0 14px; color: var(--muted); line-height: 1.55; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+    button {
+      border: 0;
+      border-radius: 14px;
+      padding: 10px 14px;
+      font-weight: 800;
+      cursor: pointer;
+      color: #07111b;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+    }
+    pre {
+      margin: 14px 0 0;
+      padding: 14px;
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(0,0,0,.18);
+      overflow: auto;
+      line-height: 1.6;
+      font-size: 12px;
+      min-height: 200px;
+    }
+    .error { color: var(--bad); font-weight: 800; }
+    a { color: var(--accent); text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="row">
+        <div>
+          <h1>statusjson</h1>
+      <div class="sub">This project no longer serves endpoints. The status JSON is written to <code>monitoring/statusjson.json</code>.</div>
+        </div>
+        <button id="refresh">Refresh</button>
+      </div>
+      <div id="err" class="error"></div>
+      <pre id="out">Waiting...</pre>
+    </div>
+  </div>
+
+  <script>
+    const out = document.getElementById('out');
+    const err = document.getElementById('err');
+    const btn = document.getElementById('refresh');
+
+    btn.addEventListener('click', load);
+    load();
+    setInterval(load, 15000);
+
+    async function load() {
+      err.textContent = '';
+      try {
+        // Works if you host the monitoring folder elsewhere. For file:// this may fail due to browser security.
+        const res = await fetch('./statusjson.json', { cache: 'no-store' });
+        const text = await res.text();
+        if (!res.ok) throw new Error(text || `HTTP ${res.status}`);
+        out.textContent = text;
+      } catch (e) {
+        err.textContent = String(e.message || e) + ' (host the folder to fetch ./statusjson.json)';
+      }
+    }
+  </script>
+</body>
+</html>

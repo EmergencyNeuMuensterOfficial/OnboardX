@@ -1,124 +1,125 @@
 /**
  * models/Giveaway.js
- * Giveaway CRUD operations backed by Firestore.
+ * Giveaway CRUD operations backed by MongoDB.
  */
 
 'use strict';
 
-const db     = require('../database/firebase');
-const logger = require('../utils/logger');
+const db = require('../database/firebase');
 
-const COL = 'giveaways';
+function col() {
+  return db.getCollection(db.COLLECTIONS.giveaways);
+}
 
 class Giveaway {
-  /**
-   * Create a new giveaway document.
-   */
   static async create(data) {
-    const ref = db.db.collection(COL).doc();
+    const now = new Date();
     const giveaway = {
-      id:         ref.id,
-      guildId:    data.guildId,
-      channelId:  data.channelId,
-      messageId:  data.messageId  ?? null,
-      prize:      data.prize,
-      winners:    data.winners    ?? 1,
-      hostedBy:   data.hostedBy,
-      entries:    [],
-      ended:      false,
-      endsAt:     db.timestamp(data.endsAt),
-      createdAt:  db.now(),
+      _id: db.createId(),
+      guildId: data.guildId,
+      channelId: data.channelId,
+      messageId: data.messageId ?? null,
+      prize: data.prize,
+      winners: data.winners ?? 1,
+      hostedBy: data.hostedBy,
+      entries: [],
+      winnerIds: [],
+      ended: false,
+      endsAt: db.toDate(data.endsAt),
+      createdAt: now,
+      updatedAt: now,
     };
-    await ref.set(giveaway);
-    return giveaway;
+
+    await col().insertOne(giveaway);
+    return normalize(giveaway);
   }
 
-  /**
-   * Fetch a giveaway by its Firestore document ID.
-   */
   static async get(id) {
-    return db.getDoc(db.db.collection(COL).doc(id));
+    const doc = await col().findOne({ _id: id });
+    return doc ? normalize(doc) : null;
   }
 
-  /**
-   * Fetch a giveaway by its Discord message ID.
-   */
   static async getByMessage(messageId) {
-    const snap = await db.db.collection(COL)
-      .where('messageId', '==', messageId)
-      .limit(1)
-      .get();
-    if (snap.empty) return null;
-    return { id: snap.docs[0].id, ...snap.docs[0].data() };
+    const doc = await col().findOne({ messageId });
+    return doc ? normalize(doc) : null;
   }
 
-  /**
-   * Fetch all active (not ended) giveaways — used for persistence on restart.
-   */
   static async getActive() {
-    const snap = await db.db.collection(COL)
-      .where('ended', '==', false)
-      .get();
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const docs = await col().find({ ended: false }).toArray();
+    return docs.map(normalize);
   }
 
-  /**
-   * Update a giveaway (partial update, merged).
-   */
   static async update(id, updates) {
-    await db.setDoc(db.db.collection(COL).doc(id), updates);
+    const current = await Giveaway.get(id);
+    if (!current) return null;
+
+    const next = {
+      guildId: updates.guildId ?? current.guildId,
+      channelId: updates.channelId ?? current.channelId,
+      messageId: updates.messageId ?? current.messageId ?? null,
+      prize: updates.prize ?? current.prize,
+      winners: updates.winners ?? current.winners,
+      hostedBy: updates.hostedBy ?? current.hostedBy,
+      entries: updates.entries ?? current.entries ?? [],
+      winnerIds: updates.winnerIds ?? current.winnerIds ?? [],
+      ended: updates.ended ?? current.ended,
+      endsAt: db.toDate(updates.endsAt ?? current.endsAt),
+      updatedAt: new Date(),
+    };
+
+    await col().updateOne({ _id: id }, { $set: next });
+    return Giveaway.get(id);
   }
 
-  /**
-   * Atomically add an entry to the giveaway (prevents duplicates).
-   * @param {string} id Giveaway document ID
-   * @param {string} userId
-   * @returns {Promise<boolean>} true if added, false if already entered
-   */
   static async addEntry(id, userId) {
-    const ref  = db.db.collection(COL).doc(id);
-    const snap = await ref.get();
-    if (!snap.exists) return false;
-
-    const { entries } = snap.data();
-    if (entries.includes(userId)) return false;
-
-    await ref.update({ entries: db.admin.firestore.FieldValue.arrayUnion(userId) });
-    return true;
+    const result = await col().updateOne(
+      { _id: id, entries: { $ne: userId } },
+      { $push: { entries: userId }, $set: { updatedAt: new Date() } }
+    );
+    return result.modifiedCount > 0;
   }
 
-  /**
-   * Pick N random winners from entries, excluding a list of previous winners.
-   * @param {string[]} entries
-   * @param {number} count
-   * @param {string[]} [exclude]
-   */
   static pickWinners(entries, count, exclude = []) {
-    const pool    = entries.filter(e => !exclude.includes(e));
+    const pool = entries.filter(entry => !exclude.includes(entry));
     const winners = [];
-    const pool2   = [...pool];
+    const copy = [...pool];
 
-    while (winners.length < count && pool2.length) {
-      const idx = Math.floor(Math.random() * pool2.length);
-      winners.push(pool2.splice(idx, 1)[0]);
+    while (winners.length < count && copy.length) {
+      const idx = Math.floor(Math.random() * copy.length);
+      winners.push(copy.splice(idx, 1)[0]);
     }
 
     return winners;
   }
 
-  /**
-   * Mark a giveaway as ended and store winners.
-   */
   static async end(id, winnerIds) {
-    await db.setDoc(db.db.collection(COL).doc(id), { ended: true, winnerIds });
+    await col().updateOne(
+      { _id: id },
+      { $set: { ended: true, winnerIds: winnerIds ?? [], updatedAt: new Date() } }
+    );
   }
 
-  /**
-   * Delete a giveaway (admin only).
-   */
   static async delete(id) {
-    await db.db.collection(COL).doc(id).delete();
+    await col().deleteOne({ _id: id });
   }
+}
+
+function normalize(doc) {
+  return {
+    id: doc._id,
+    guildId: doc.guildId,
+    channelId: doc.channelId,
+    messageId: doc.messageId ?? null,
+    prize: doc.prize,
+    winners: doc.winners ?? 1,
+    hostedBy: doc.hostedBy,
+    entries: Array.isArray(doc.entries) ? doc.entries : [],
+    winnerIds: Array.isArray(doc.winnerIds) ? doc.winnerIds : [],
+    ended: Boolean(doc.ended),
+    endsAt: db.toTimestamp(doc.endsAt),
+    createdAt: db.toTimestamp(doc.createdAt),
+    updatedAt: db.toTimestamp(doc.updatedAt),
+  };
 }
 
 module.exports = Giveaway;

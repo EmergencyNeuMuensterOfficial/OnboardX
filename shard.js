@@ -8,7 +8,6 @@ require('dotenv').config();
 
 const path   = require('path');
 const fs     = require('fs');
-const http   = require('http');
 const os     = require('os');
 const { ClusterManager } = require('discord-hybrid-sharding');
 const { chunkArray, fetchRecommendedShards } = require('discord-hybrid-sharding/dist/Util/Util');
@@ -21,18 +20,17 @@ const CLUSTER_COUNT      = process.env.CLUSTER_COUNT ? parseInt(process.env.CLUS
 // Cluster spawn parallelism. Shard identify speed is still bounded by Discord session-start limits.
 const CLUSTER_SPAWN_CONCURRENCY = parseInt(process.env.CLUSTER_SPAWN_CONCURRENCY ?? '3', 10);
 const CLUSTER_SPAWN_BATCH_DELAY_MS = parseInt(process.env.CLUSTER_SPAWN_BATCH_DELAY_MS ?? '250', 10);
-const CLUSTER_READY_TIMEOUT_MS = parseInt(process.env.CLUSTER_READY_TIMEOUT_MS ?? '120000', 10);
+// If you wait for READY on spawn, timeouts must scale with shard count per cluster.
+const CLUSTER_READY_TIMEOUT_BASE_MS = parseInt(process.env.CLUSTER_READY_TIMEOUT_MS ?? '120000', 10);
+const CLUSTER_READY_TIMEOUT_PER_SHARD_MS = parseInt(process.env.CLUSTER_READY_TIMEOUT_PER_SHARD_MS ?? '7000', 10);
+const CLUSTER_WAIT_READY_ON_SPAWN = process.env.CLUSTER_WAIT_READY_ON_SPAWN === 'true';
+const CLUSTER_RESPAWN_DELAY_MS = parseInt(process.env.CLUSTER_RESPAWN_DELAY_MS ?? '5000', 10);
+const CLUSTER_RESPAWN_TIMEOUT_MS = parseInt(process.env.CLUSTER_RESPAWN_TIMEOUT_MS ?? '-1', 10);
 const HEALTH_PORT        = parseInt(process.env.HEALTH_PORT ?? '9090', 10);
 const STATUS_SYNC_MS     = parseInt(process.env.CLUSTER_STATUS_SYNC_MS ?? '30000', 10);
-const STATUS_HTML_PATH   = path.join(__dirname, 'monitoring', 'status.html');
-const STATUS_FIREBASE_HTML_PATH = path.join(__dirname, 'monitoring', 'status-firebase.html');
-const DASHBOARD_SYSTEM_HTML_PATH = path.join(__dirname, 'monitoring', 'dashboard-system.html');
-const DASHBOARD_ADMIN_HTML_PATH  = path.join(__dirname, 'monitoring', 'dashboard-admin.html');
-const HTTP_HOST          = process.env.STATUS_BIND_HOST ?? '0.0.0.0';
+const STATUSJSON_PATH    = path.join(__dirname, 'monitoring', 'statusjson.json');
 // If the manager crashes hard, no shutdown hook runs. This TTL lets UIs mark status as offline when stale.
 const STATUS_TTL_MS      = parseInt(process.env.CLUSTER_STATUS_TTL_MS ?? String(STATUS_SYNC_MS * 3), 10);
-const DASHBOARD_ADMIN_UIDS = (process.env.DASHBOARD_ADMIN_UIDS ?? '').split(',').map(s => s.trim()).filter(Boolean);
-const DASHBOARD_ADMIN_EMAILS = (process.env.DASHBOARD_ADMIN_EMAILS ?? '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 
 const manager = new ClusterManager(path.join(__dirname, 'index.js'), {
   totalShards: TOTAL_SHARDS,
@@ -45,6 +43,7 @@ const manager = new ClusterManager(path.join(__dirname, 'index.js'), {
 });
 
 let lastSnapshot = null;
+const respawningClusters = new Set();
 
 manager.on('clusterCreate', cluster => {
   logger.info(`[Manager] Cluster #${cluster.id} Spawning`);
@@ -99,6 +98,7 @@ manager.on('clusterCreate', cluster => {
       error: err.message,
       lastEventAt: new Date().toISOString(),
     });
+    void ensureClusterRespawn(cluster, `error: ${err.message}`);
   });
 
   cluster.on('death', proc => {
@@ -111,6 +111,7 @@ manager.on('clusterCreate', cluster => {
       exitCode: proc?.exitCode ?? null,
       lastEventAt: new Date().toISOString(),
     });
+    void ensureClusterRespawn(cluster, `death: ${proc?.exitCode ?? 'unknown'}`);
   });
 });
 
@@ -130,11 +131,21 @@ manager.on('clusterCreate', cluster => {
       node: process.version,
       maintenance: getMaintenanceState(),
     });
+    writeStatusJsonFile({
+      online: true,
+      stale: false,
+      state: 'starting',
+      ts: new Date().toISOString(),
+      source: 'local',
+    });
 
     const totalShards = await resolveTotalShards();
-    await spawnClustersParallel(totalShards);
+    const spawnSummary = await spawnClustersParallel(totalShards);
 
-    logger.info(`[Manager] All ${manager.clusters.size} cluster(s) spawned successfully`);
+    logger.info(
+      `[Manager] Spawned ${spawnSummary.spawned} cluster(s)` +
+      (spawnSummary.failed ? `, ${spawnSummary.failed} failed to spawn` : '')
+    );
     // Don't block startup on the first broadcastEval + Firestore writes.
     setTimeout(() => void syncClusterStatusToFirebase(manager).catch(() => {}), 1_000).unref?.();
 
@@ -157,104 +168,12 @@ manager.on('clusterCreate', cluster => {
   }
 })();
 
-const server = http.createServer(async (req, res) => {
-  const url = req.url?.split('?')[0] ?? '/';
-
-  if (url === '/' || url === '/status') {
-    return serveStatusPage(res);
-  }
-  if (url === '/status/firebase') {
-    return serveStatusFirebasePage(res);
-  }
-  if (url === '/dashboard' || url === '/dashboard/system') {
-    return serveFile(res, DASHBOARD_SYSTEM_HTML_PATH, 'system dashboard');
-  }
-  if (url === '/dashboard/admin') {
-    return serveFile(res, DASHBOARD_ADMIN_HTML_PATH, 'admin dashboard');
-  }
-
-  if (url === '/api/system/status') {
-    return handleApiSystemStatus(req, res);
-  }
-  if (url === '/api/guilds') {
-    return handleApiGuilds(req, res);
-  }
-  if (url.startsWith('/api/guilds/') && url.endsWith('/config')) {
-    const parts = url.split('/').filter(Boolean); // api guilds :id config
-    const guildId = parts[2];
-    return handleApiGuildConfig(req, res, guildId);
-  }
-
-  if (url === '/health') {
-    const healthy = manager.clusters.size > 0 &&
-      [...manager.clusters.values()].some(c => c.ready);
-    const maintenance = getMaintenanceState();
-    const status = maintenance.enabled ? 'maintenance' : (healthy ? 'ok' : 'degraded');
-
-    res.writeHead(healthy ? 200 : 503, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({
-      status,
-      maintenance,
-      pid: process.pid,
-      uptimeSecs: Math.floor(process.uptime()),
-      clusters: manager.clusters.size,
-      ts: new Date().toISOString(),
-    }));
-  }
-
-  if (url === '/metrics') {
-    let stats = {};
-    try {
-      stats = await collectStats(manager);
-    } catch { /* ignore */ }
-
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({
-      pid: process.pid,
-      uptimeSecs: Math.floor(process.uptime()),
-      memory: fmtMemory(),
-      node: process.version,
-      platform: process.platform,
-      cpuCores: os.cpus().length,
-      maintenance: getMaintenanceState(),
-      ...stats,
-      ts: new Date().toISOString(),
-    }, null, 2));
-  }
-
-  if (url === '/clusters') {
-    let perCluster = [];
-    try {
-      perCluster = await collectClusterBreakdown(manager);
-    } catch { /* ignore */ }
-
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify(perCluster, null, 2));
-  }
-
-  res.writeHead(404, { 'Content-Type': 'text/plain' });
-  res.end('Available: /status  /status/firebase  /dashboard  /dashboard/admin  /health  /metrics  /clusters');
-});
-
-server.listen(HEALTH_PORT, HTTP_HOST, () => {
-  logger.info(`[Manager] Health: http://${HTTP_HOST}:${HEALTH_PORT}/health | Status: http://${HTTP_HOST}:${HEALTH_PORT}/status`);
-});
-
-server.on('error', err => {
-  if (err.code === 'EADDRINUSE') {
-    logger.warn(`[Manager] Port ${HEALTH_PORT} in use - health server skipped`);
-  } else {
-    logger.error('[Manager] Health server error:', err);
-  }
-});
-
 const shutdown = async (sig) => {
   logger.info(`[Manager] ${sig} received - shutting down clusters`);
   await markSystemStopped({ reason: 'signal', signal: sig });
   try {
     await manager.broadcastEval(c => c.destroy()).catch(() => {});
   } catch { /* ignore */ }
-  server.close();
   process.exit(0);
 };
 
@@ -398,6 +317,20 @@ async function syncClusterStatusToFirebase(mgr, stats = null) {
     lastSnapshotAt: nowIso,
     expiresAt: expiresAtIso,
   });
+
+  // Also write a local JSON file for external tooling (no remote hosting).
+  writeStatusJsonFile({
+    online: true,
+    stale: false,
+    state: maintenance.enabled ? 'maintenance' : 'running',
+    ts: nowIso,
+    expiresAt: expiresAtIso,
+    lastSnapshotAt: nowIso,
+    maintenance,
+    clusters: { total: snapshot.clusterCount, ready: snapshot.readyClusters },
+    shards: { total: snapshot.totalShards, ready: snapshot.readyShards },
+    source: 'local',
+  });
 }
 
 async function writeClusterLifecycleStatus(clusterId, updates) {
@@ -485,25 +418,26 @@ async function markSystemStopped(extra = {}) {
   } catch (err) {
     logger.warn(`[Manager] Failed to mark system stopped: ${err.message}`);
   }
+
+  writeStatusJsonFile({
+    online: false,
+    stale: true,
+    state: maintenance.enabled ? 'maintenance' : 'stopped',
+    ts: nowIso,
+    expiresAt: expiresAtIso,
+    lastSnapshotAt: nowIso,
+    maintenance,
+    ...extra,
+    source: 'local',
+  });
 }
 
-function serveStatusPage(res) {
-  return serveFile(res, STATUS_HTML_PATH, 'status page');
-}
-
-function serveStatusFirebasePage(res) {
-  return serveFile(res, STATUS_FIREBASE_HTML_PATH, 'firebase status page');
-}
-
-function serveFile(res, filePath, label) {
+function writeStatusJsonFile(payload) {
   try {
-    const html = fs.readFileSync(filePath, 'utf8');
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(html);
+    fs.mkdirSync(path.dirname(STATUSJSON_PATH), { recursive: true });
+    fs.writeFileSync(STATUSJSON_PATH, JSON.stringify(payload, null, 2), 'utf8');
   } catch (err) {
-    logger.error(`[Manager] Could not serve ${label}:`, err);
-    res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end(`${label} not found.`);
+    logger.warn(`[Manager] Failed to write statusjson file: ${err.message}`);
   }
 }
 
@@ -514,139 +448,6 @@ function getMaintenanceState() {
     startedAt: process.env.MAINTENANCE_STARTED_AT ?? null,
     estimatedEndAt: process.env.MAINTENANCE_ENDS_AT ?? null,
   };
-}
-
-async function readJson(req) {
-  return new Promise((resolve, reject) => {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-      if (!body) return resolve({});
-      try { resolve(JSON.parse(body)); } catch (e) { reject(e); }
-    });
-    req.on('error', reject);
-  });
-}
-
-function sendJson(res, statusCode, data) {
-  res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
-  res.end(JSON.stringify(data, null, 2));
-}
-
-function getBearerToken(req) {
-  const header = req.headers['authorization'] || req.headers['Authorization'];
-  if (!header || typeof header !== 'string') return null;
-  const m = header.match(/^Bearer\s+(.+)$/i);
-  return m ? m[1].trim() : null;
-}
-
-async function requireFirebaseAuth(req, res) {
-  const token = getBearerToken(req);
-  if (!token) {
-    sendJson(res, 401, { error: 'missing_token' });
-    return null;
-  }
-  try {
-    const decoded = await firebase.admin.auth().verifyIdToken(token);
-    return decoded;
-  } catch (err) {
-    sendJson(res, 401, { error: 'invalid_token', message: err.message });
-    return null;
-  }
-}
-
-function isDashboardAdmin(decodedToken) {
-  if (!decodedToken) return false;
-  if (DASHBOARD_ADMIN_UIDS.includes(decodedToken.uid)) return true;
-  const email = (decodedToken.email || '').toLowerCase();
-  if (email && DASHBOARD_ADMIN_EMAILS.includes(email)) return true;
-  return false;
-}
-
-async function handleApiSystemStatus(req, res) {
-  const decoded = await requireFirebaseAuth(req, res);
-  if (!decoded) return;
-
-  try {
-    const system = await firebase.getDoc(firebase.systemRef('clusterStatus'));
-    const clustersSnap = await firebase.systemRef('clusterStatus').collection('clusters').get();
-    const shardsSnap = await firebase.systemRef('clusterStatus').collection('shards').get();
-    const clusters = clustersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const shards = shardsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-    sendJson(res, 200, { system, clusters, shards, ts: new Date().toISOString() });
-  } catch (err) {
-    sendJson(res, 500, { error: 'system_status_failed', message: err.message });
-  }
-}
-
-async function handleApiGuilds(req, res) {
-  const decoded = await requireFirebaseAuth(req, res);
-  if (!decoded) return;
-  if (!isDashboardAdmin(decoded)) {
-    sendJson(res, 403, { error: 'forbidden' });
-    return;
-  }
-
-  try {
-    const results = await manager.broadcastEval(c => {
-      return [...c.guilds.cache.values()].map(g => ({
-        id: g.id,
-        name: g.name,
-        memberCount: g.memberCount,
-        iconURL: g.iconURL({ size: 64 }),
-      }));
-    });
-    const all = results.flat();
-    // De-dupe by guildId (each guild exists on exactly one shard, but be safe).
-    const map = new Map();
-    for (const g of all) {
-      if (!map.has(g.id)) map.set(g.id, g);
-    }
-    sendJson(res, 200, { guilds: [...map.values()].sort((a, b) => a.name.localeCompare(b.name)) });
-  } catch (err) {
-    sendJson(res, 500, { error: 'guild_list_failed', message: err.message });
-  }
-}
-
-async function handleApiGuildConfig(req, res, guildId) {
-  const decoded = await requireFirebaseAuth(req, res);
-  if (!decoded) return;
-  if (!isDashboardAdmin(decoded)) {
-    sendJson(res, 403, { error: 'forbidden' });
-    return;
-  }
-  if (!guildId) {
-    sendJson(res, 400, { error: 'missing_guild_id' });
-    return;
-  }
-
-  try {
-    if (req.method === 'GET') {
-      const cfg = await firebase.getDoc(firebase.guildRef(guildId));
-      return sendJson(res, 200, { guildId, config: cfg });
-    }
-
-    if (req.method === 'POST') {
-      const body = await readJson(req).catch(() => null);
-      if (!body || typeof body !== 'object') {
-        return sendJson(res, 400, { error: 'invalid_json' });
-      }
-      const updates = body.updates;
-      if (!updates || typeof updates !== 'object') {
-        return sendJson(res, 400, { error: 'missing_updates' });
-      }
-      // Use the existing GuildConfig model semantics (dot-notation updates).
-      const GuildConfig = require('./models/GuildConfig');
-      await GuildConfig.update(guildId, updates);
-      const cfg = await firebase.getDoc(firebase.guildRef(guildId));
-      return sendJson(res, 200, { ok: true, guildId, config: cfg });
-    }
-
-    return sendJson(res, 405, { error: 'method_not_allowed' });
-  } catch (err) {
-    sendJson(res, 500, { error: 'guild_config_failed', message: err.message });
-  }
 }
 
 async function resolveTotalShards() {
@@ -668,16 +469,91 @@ async function spawnClustersParallel(totalShards) {
   manager.totalClusters = shardClusterList.length;
 
   const concurrency = Math.max(1, CLUSTER_SPAWN_CONCURRENCY || 1);
+  let spawned = 0;
+  let failed = 0;
+
   for (let i = 0; i < shardClusterList.length; i += concurrency) {
     const batch = shardClusterList.slice(i, i + concurrency);
-    await Promise.all(batch.map((shardsToSpawn, offset) => {
+    await Promise.all(batch.map(async (shardsToSpawn, offset) => {
       const clusterId = i + offset;
       const cluster = manager.createCluster(clusterId, shardsToSpawn, totalShards);
-      return cluster.spawn(CLUSTER_READY_TIMEOUT_MS);
+
+      try {
+        // Default: don't block manager startup waiting for READY.
+        // Some hosts start slowly enough that READY timeouts kill the manager
+        // even though the child process is healthy and will connect moments later.
+        // We only wait if explicitly requested and clamp the timeout safely.
+        const spawnTimeout = CLUSTER_WAIT_READY_ON_SPAWN
+          ? Math.max(
+            30_000,
+            CLUSTER_READY_TIMEOUT_BASE_MS + (CLUSTER_READY_TIMEOUT_PER_SHARD_MS * (shardsToSpawn?.length ?? 1))
+          )
+          : -1;
+
+        await cluster.spawn(spawnTimeout);
+        spawned += 1;
+      } catch (err) {
+        failed += 1;
+        logger.error(`[Manager] Cluster #${clusterId} spawn failed: ${err.message}`);
+        await writeClusterLifecycleStatus(clusterId, {
+          state: 'error',
+          ready: false,
+          processState: 'error',
+          error: err.message,
+          lastEventAt: new Date().toISOString(),
+        }).catch(() => {});
+      }
     }));
     if (CLUSTER_SPAWN_BATCH_DELAY_MS > 0) {
       await new Promise(res => setTimeout(res, CLUSTER_SPAWN_BATCH_DELAY_MS));
     }
+  }
+
+  return { spawned, failed };
+}
+
+async function ensureClusterRespawn(cluster, reason = 'unknown') {
+  if (!cluster || respawningClusters.has(cluster.id)) return;
+
+  respawningClusters.add(cluster.id);
+  const nowIso = new Date().toISOString();
+
+  try {
+    logger.warn(`[Manager] Respawning cluster #${cluster.id} after ${reason}`);
+    await writeClusterLifecycleStatus(cluster.id, {
+      state: 'respawning',
+      ready: false,
+      processState: 'respawning',
+      pid: cluster.process?.pid ?? cluster.thread?.process?.pid ?? null,
+      lastEventAt: nowIso,
+      respawnReason: reason,
+    });
+
+    await cluster.respawn({
+      delay: Math.max(0, CLUSTER_RESPAWN_DELAY_MS),
+      timeout: CLUSTER_RESPAWN_TIMEOUT_MS,
+    });
+
+    await writeClusterLifecycleStatus(cluster.id, {
+      state: 'spawning',
+      ready: false,
+      processState: 'starting',
+      pid: cluster.process?.pid ?? cluster.thread?.process?.pid ?? null,
+      lastEventAt: new Date().toISOString(),
+      respawnReason: null,
+    });
+  } catch (err) {
+    logger.error(`[Manager] Failed to respawn cluster #${cluster.id}: ${err.message}`);
+    await writeClusterLifecycleStatus(cluster.id, {
+      state: 'error',
+      ready: false,
+      processState: 'respawn_failed',
+      error: err.message,
+      lastEventAt: new Date().toISOString(),
+      respawnReason: reason,
+    }).catch(() => {});
+  } finally {
+    respawningClusters.delete(cluster.id);
   }
 }
 

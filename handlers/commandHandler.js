@@ -29,6 +29,8 @@ async function loadCommands(client) {
   const commandsDir = path.join(__dirname, '..', 'commands');
   const files       = walk(commandsDir);
   const jsonBody    = [];
+  const clusterId = client.cluster?.id ?? null;
+  const isPrimaryCluster = clusterId === null || clusterId === 0;
 
   for (const file of files) {
     try {
@@ -48,8 +50,10 @@ async function loadCommands(client) {
   logger.info(`Loaded ${client.commands.size} commands.`);
 
   // Deploy commands to Discord (run separately in production via `npm run deploy`)
-  if (process.env.AUTO_DEPLOY === 'true') {
+  if (process.env.AUTO_DEPLOY === 'true' && isPrimaryCluster) {
     await deployCommands(jsonBody);
+  } else if (process.env.AUTO_DEPLOY === 'true' && !isPrimaryCluster) {
+    logger.info(`Skipping auto deploy on cluster #${clusterId}; primary cluster handles command registration.`);
   }
 }
 

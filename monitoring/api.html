@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OnboardX API Monitor</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: rgba(18, 28, 54, 0.82);
+      --border: rgba(160, 200, 255, 0.14);
+      --text: #eef6ff;
+      --muted: #9bb0c8;
+      --ok: #33d17a;
+      --warn: #ffbd59;
+      --bad: #ff6f6f;
+      --accent: #74c5ff;
+      --accent2: #8f82ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(116, 197, 255, 0.18), transparent 32%),
+        radial-gradient(circle at top right, rgba(143, 130, 255, 0.16), transparent 30%),
+        linear-gradient(165deg, #050814 0%, #070b16 55%, #050814 100%);
+      color: var(--text);
+    }
+    .wrap { width: min(1200px, calc(100% - 28px)); margin: 0 auto; padding: 26px 0 54px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: 0 16px 44px rgba(0,0,0,.28);
+      margin-bottom: 12px;
+    }
+    h1 { margin: 0 0 8px; font-size: 26px; letter-spacing: -0.02em; }
+    .sub { margin: 0; color: var(--muted); line-height: 1.55; }
+    .toolbar { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; margin-top: 14px; }
+    input, textarea {
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(0,0,0,.18);
+      color: var(--text);
+      padding: 10px 12px;
+      font-size: 14px;
+    }
+    button {
+      border: 0;
+      border-radius: 14px;
+      padding: 10px 14px;
+      font-weight: 800;
+      cursor: pointer;
+      color: #07111b;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+    }
+    button.secondary {
+      background: rgba(255,255,255,.06);
+      color: var(--text);
+      border: 1px solid rgba(255,255,255,.10);
+    }
+    .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+    .stat { padding: 14px; border-radius: 16px; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.06); }
+    .label { color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-size: 12px; }
+    .value { margin-top: 8px; font-size: 22px; font-weight: 800; }
+    .pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; font-size: 12px; }
+    .pill.ok { background: rgba(51, 209, 122, .14); color: var(--ok); }
+    .pill.warn { background: rgba(255, 189, 89, .14); color: var(--warn); }
+    .pill.bad { background: rgba(255, 111, 111, .14); color: var(--bad); }
+    .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+    .list { display: grid; gap: 10px; margin-top: 12px; }
+    .item { padding: 12px; border-radius: 16px; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.06); }
+    .item-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .item-title { font-weight: 900; }
+    .meta { color: var(--muted); font-size: 13px; line-height: 1.6; margin-top: 8px; }
+    .hint { color: var(--muted); font-size: 13px; line-height: 1.55; }
+    .error { color: var(--bad); font-weight: 800; margin-top: 10px; }
+    textarea {
+      min-height: 220px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.55;
+      resize: vertical;
+    }
+    @media (max-width: 760px) {
+      .toolbar { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>API Monitor</h1>
+      <p class="sub">This page only talks to your hosted API. Enter your API base URL, then it will request your MongoDB-backed status endpoints.</p>
+      <div class="toolbar">
+        <input id="apiBaseUrl" placeholder="https://your-domain.example/api" />
+        <button id="saveUrl">Save URL</button>
+        <button id="reload" class="secondary">Reload</button>
+      </div>
+      <div class="toolbar" style="margin-top:10px">
+        <input id="token" placeholder="Optional bearer token" />
+        <button id="saveToken">Save Token</button>
+        <button id="clearToken" class="secondary">Clear Token</button>
+      </div>
+      <div class="hint" style="margin-top:10px;">
+        Expected endpoints: <code>/system/status</code>, <code>/system/clusters</code>, <code>/system/shards</code>, <code>/system/incidents</code>
+      </div>
+      <div id="error" class="error"></div>
+    </div>
+
+    <div class="card">
+      Status: <span id="status"><span class="pill warn">loading</span></span>
+      <div class="hint" id="lastUpdated" style="margin-top: 10px;">Waiting for API...</div>
+    </div>
+
+    <div class="card">
+      <div class="row" id="summary"></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="label">Clusters</div>
+        <div class="list" id="clusters"></div>
+      </div>
+      <div class="card">
+        <div class="label">Shards</div>
+        <div class="list" id="shards"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="label">Incidents</div>
+      <div class="list" id="incidents"></div>
+    </div>
+
+    <div class="card">
+      <div class="label">Raw</div>
+      <textarea id="raw" spellcheck="false" readonly></textarea>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_URL = 'onboardx_api_monitor_url';
+    const STORAGE_TOKEN = 'onboardx_api_monitor_token';
+    const REFRESH_MS = 15000;
+
+    const apiBaseUrlEl = document.getElementById('apiBaseUrl');
+    const tokenEl = document.getElementById('token');
+    const errorEl = document.getElementById('error');
+    const statusEl = document.getElementById('status');
+    const lastUpdatedEl = document.getElementById('lastUpdated');
+    const summaryEl = document.getElementById('summary');
+    const clustersEl = document.getElementById('clusters');
+    const shardsEl = document.getElementById('shards');
+    const incidentsEl = document.getElementById('incidents');
+    const rawEl = document.getElementById('raw');
+
+    apiBaseUrlEl.value = localStorage.getItem(STORAGE_URL) || '';
+    tokenEl.value = localStorage.getItem(STORAGE_TOKEN) || '';
+
+    document.getElementById('saveUrl').addEventListener('click', () => {
+      localStorage.setItem(STORAGE_URL, apiBaseUrlEl.value.trim());
+      loadAll();
+    });
+
+    document.getElementById('reload').addEventListener('click', loadAll);
+
+    document.getElementById('saveToken').addEventListener('click', () => {
+      const token = tokenEl.value.trim();
+      if (token) localStorage.setItem(STORAGE_TOKEN, token);
+      else localStorage.removeItem(STORAGE_TOKEN);
+      loadAll();
+    });
+
+    document.getElementById('clearToken').addEventListener('click', () => {
+      tokenEl.value = '';
+      localStorage.removeItem(STORAGE_TOKEN);
+      loadAll();
+    });
+
+    function buildApiUrl(path) {
+      const base = (localStorage.getItem(STORAGE_URL) || '').trim().replace(/\/+$/, '');
+      if (!base) throw new Error('No API base URL saved.');
+      return `${base}${path}`;
+    }
+
+    function createHeaders() {
+      const headers = { Accept: 'application/json' };
+      const token = (localStorage.getItem(STORAGE_TOKEN) || '').trim();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      return headers;
+    }
+
+    async function apiGet(path) {
+      const res = await fetch(buildApiUrl(path), {
+        headers: createHeaders(),
+        cache: 'no-store',
+      });
+
+      const text = await res.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+      if (!res.ok) throw new Error(data && (data.error || data.message) ? (data.error || data.message) : `HTTP ${res.status}`);
+      return data;
+    }
+
+    async function loadAll() {
+      errorEl.textContent = '';
+      try {
+        const [system, clusters, shards, incidents] = await Promise.all([
+          apiGet('/system/status'),
+          apiGet('/system/clusters'),
+          apiGet('/system/shards'),
+          apiGet('/system/incidents').catch(() => []),
+        ]);
+
+        const clusterItems = Array.isArray(clusters) ? clusters : (clusters && clusters.items) || [];
+        const shardItems = Array.isArray(shards) ? shards : (shards && shards.items) || [];
+        const incidentItems = Array.isArray(incidents) ? incidents : (incidents && incidents.items) || [];
+
+        renderSystem(system);
+        renderClusters(clusterItems);
+        renderShards(shardItems);
+        renderIncidents(incidentItems);
+        rawEl.value = JSON.stringify({ system, clusters: clusterItems, shards: shardItems, incidents: incidentItems }, null, 2);
+        lastUpdatedEl.textContent = `Last reload: ${new Date().toLocaleString()}`;
+      } catch (err) {
+        errorEl.textContent = err.message || String(err);
+        statusEl.innerHTML = '<span class="pill bad">offline</span>';
+      }
+    }
+
+    function renderSystem(d) {
+      const stale = isStale(d && d.expiresAt);
+      const state = stale ? 'offline' : (d && d.state) || 'unknown';
+      const pillClass = (state === 'running' || state === 'maintenance') && !stale ? 'ok' : stale ? 'bad' : 'warn';
+      statusEl.innerHTML = `<span class="pill ${pillClass}">${escapeHtml(stale ? 'offline (stale)' : state)}</span>`;
+
+      const cards = [
+        { label: 'Clusters', value: fmt(d && d.clusterCount) },
+        { label: 'Ready Clusters', value: `${fmt(d && d.readyClusters)}/${fmt(d && d.clusterCount)}` },
+        { label: 'Shards', value: fmt(d && d.totalShards) },
+        { label: 'Ready Shards', value: `${fmt(d && d.readyShards)}/${fmt(d && d.totalShards)}` },
+        { label: 'Guilds', value: fmt(d && d.totalGuilds) },
+        { label: 'Users', value: fmt(d && d.totalUsers) },
+        { label: 'Avg Ping', value: d && d.avgPingMs != null ? `${d.avgPingMs} ms` : '-' },
+        { label: 'Host', value: (d && d.host) || '-' },
+      ];
+
+      summaryEl.innerHTML = cards.map(card =>
+        `<div class="stat"><div class="label">${escapeHtml(card.label)}</div><div class="value">${escapeHtml(String(card.value))}</div></div>`
+      ).join('');
+    }
+
+    function renderClusters(items) {
+      clustersEl.innerHTML = items.length ? items.map(c => {
+        const stale = isStale(c.expiresAt);
+        const label = stale ? 'offline (stale)' : (c.state || 'unknown');
+        const cls = (label === 'ready' || label === 'running') && !stale ? 'ok' : stale ? 'bad' : 'warn';
+        return `
+          <div class="item">
+            <div class="item-head">
+              <div class="item-title">Cluster #${escapeHtml(String(c.clusterId))}</div>
+              <span class="pill ${cls}">${escapeHtml(label)}</span>
+            </div>
+            <div class="meta">
+              Guilds: <code>${escapeHtml(String(c.guilds || 0))}</code> · Users: <code>${escapeHtml(String(c.users || 0))}</code> · Ping: <code>${escapeHtml(String(c.ping ?? '-'))}ms</code><br>
+              Shards: <code>${escapeHtml((c.shards || []).join(', ') || '-')}</code><br>
+              Heartbeat: <code>${escapeHtml(String(c.lastHeartbeatAt || '-'))}</code>
+            </div>
+          </div>
+        `;
+      }).join('') : '<div class="hint">No clusters returned.</div>';
+    }
+
+    function renderShards(items) {
+      const preview = items.slice(0, 80);
+      shardsEl.innerHTML = preview.length ? preview.map(s => {
+        const stale = isStale(s.expiresAt);
+        const ready = s.ready === true || s.state === 'ready' || s.statusCode === 0;
+        const label = stale ? 'offline' : (ready ? 'ready' : (s.state || 'unknown'));
+        const cls = ready && !stale ? 'ok' : stale ? 'bad' : 'warn';
+        return `
+          <div class="item">
+            <div class="item-head">
+              <div class="item-title">Shard #${escapeHtml(String(s.shardId))} (Cluster #${escapeHtml(String(s.clusterId))})</div>
+              <span class="pill ${cls}">${escapeHtml(label)}</span>
+            </div>
+            <div class="meta">
+              Ping: <code>${escapeHtml(String(s.ping ?? '-'))}ms</code> · Ready: <code>${s.ready ? 'yes' : 'no'}</code> · Seq: <code>${escapeHtml(String(s.sequence ?? '-'))}</code><br>
+              State: <code>${escapeHtml(String(s.state || '-'))}</code> · Code: <code>${escapeHtml(String(s.statusCode ?? '-'))}</code>
+            </div>
+          </div>
+        `;
+      }).join('') + (items.length > 80 ? '<div class="hint">Showing first 80 shards...</div>' : '') : '<div class="hint">No shards returned.</div>';
+    }
+
+    function renderIncidents(items) {
+      incidentsEl.innerHTML = items.length ? items.map(inc => `
+        <div class="item">
+          <div class="item-head">
+            <div class="item-title">${escapeHtml(inc.title || 'Incident')}</div>
+            <span class="pill warn">${escapeHtml(inc.status || 'open')}</span>
+          </div>
+          <div class="meta">
+            ${escapeHtml(inc.message || 'No message')}<br>
+            Created: <code>${escapeHtml(String(inc.createdAt || '-'))}</code>
+          </div>
+        </div>
+      `).join('') : '<div class="hint">No incidents returned.</div>';
+    }
+
+    function isStale(expiresAt) {
+      if (!expiresAt) return false;
+      const d = new Date(expiresAt);
+      return !Number.isNaN(d.getTime()) && Date.now() > d.getTime();
+    }
+
+    function fmt(v) {
+      const n = Number(v);
+      return (v == null || Number.isNaN(n)) ? '-' : n.toLocaleString();
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    loadAll();
+    setInterval(loadAll, REFRESH_MS);
+  </script>
+</body>
+</html>

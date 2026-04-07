@@ -1,7 +1,7 @@
 /**
  * models/GuildConfig.js
- * Encapsulates all Firestore interactions for a guild's configuration.
- * Includes an in-memory LRU-style cache to minimise Firestore reads.
+ * Encapsulates all guild configuration persistence in MongoDB.
+ * Includes an in-memory LRU-style cache to minimise database reads.
  */
 
 'use strict';
@@ -125,7 +125,6 @@ class GuildConfig {
     const cached = cache.get(guildId);
     if (cached && cached.expiresAt > Date.now()) return cached.data;
 
-    // Firestore fetch
     try {
       const doc = await db.getDoc(db.guildRef(guildId));
       const data = doc ? mergeDefaults(DEFAULT_CONFIG, doc) : { ...DEFAULT_CONFIG, guildId };
@@ -140,35 +139,18 @@ class GuildConfig {
   /**
    * Update specific fields in a guild's config.
    *
-   * CRITICAL: uses ref.update() — NOT ref.set({merge:true}).
-   * Firestore's set(merge) treats dot-notation keys LITERALLY (it would create
-   * a key named "modules.logging" at the root). Only ref.update() resolves
-   * dots as nested paths, e.g. "modules.logging" -> modules -> logging.
-   *
    * @param {string} guildId
    * @param {object} updates  — dot-notation keys are fully supported
    */
   static async update(guildId, updates) {
-    const ref = db.guildRef(guildId);
     try {
-      const snap = await ref.get();
+      const current = await GuildConfig.get(guildId);
+      const next = mergeDefaults(DEFAULT_CONFIG, current);
+      applyDotUpdates(next, updates);
+      next.guildId = guildId;
 
-      if (!snap.exists) {
-        // Bootstrap with full defaults so ref.update() never fails on a missing doc.
-        await ref.set({
-          ...DEFAULT_CONFIG,
-          guildId,
-          createdAt: db.admin.firestore.FieldValue.serverTimestamp(),
-        });
-      }
-
-      // ref.update() correctly resolves dot-notation as nested Firestore paths.
-      await ref.update({
-        ...updates,
-        updatedAt: db.admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      cache.delete(guildId); // Invalidate so next get() re-fetches fresh data
+      await db.setDoc(db.guildRef(guildId), next, false);
+      cache.delete(guildId);
     } catch (err) {
       logger.error(`GuildConfig.update(${guildId}):`, err);
       throw err;
@@ -220,6 +202,21 @@ function mergeDefaults(defaults, data) {
     }
   }
   return result;
+}
+
+function applyDotUpdates(target, updates) {
+  for (const [path, value] of Object.entries(updates ?? {})) {
+    const keys = path.split('.');
+    let cursor = target;
+    for (let i = 0; i < keys.length - 1; i += 1) {
+      const key = keys[i];
+      if (!cursor[key] || typeof cursor[key] !== 'object' || Array.isArray(cursor[key])) {
+        cursor[key] = {};
+      }
+      cursor = cursor[key];
+    }
+    cursor[keys[keys.length - 1]] = value;
+  }
 }
 
 module.exports = GuildConfig;

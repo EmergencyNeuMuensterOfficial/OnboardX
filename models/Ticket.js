@@ -1,95 +1,101 @@
 /**
  * models/Ticket.js
- * Support ticket storage and retrieval.
- * Tickets are backed by Discord threads (forum or text threads).
+ * Support ticket storage and retrieval backed by MongoDB.
  */
 
 'use strict';
 
 const db = require('../database/firebase');
 
-const COL = 'tickets';
+function ticketsCol() {
+  return db.getCollection(db.COLLECTIONS.tickets);
+}
 
-/**
- * @typedef {object} TicketDoc
- * @property {string} id          Firestore doc ID
- * @property {string} guildId
- * @property {string} userId      Ticket creator
- * @property {string} channelId   Parent channel
- * @property {string} threadId    Thread ID (the actual ticket thread)
- * @property {string} subject
- * @property {'open'|'closed'} status
- * @property {number} ticketNumber  Auto-incremented per guild
- * @property {object} createdAt
- * @property {object} [closedAt]
- * @property {string} [closedBy]
- */
+function countersCol() {
+  return db.getCollection(db.COLLECTIONS.ticketCounters);
+}
 
 class Ticket {
   static async create({ guildId, userId, channelId, threadId, subject }) {
-    // Auto-increment ticket number per guild
-    const counterRef = db.db.collection('ticket_counters').doc(guildId);
-    const counterSnap = await counterRef.get();
-    const ticketNumber = (counterSnap.data()?.count ?? 0) + 1;
-    await counterRef.set({ count: ticketNumber }, { merge: true });
+    const now = new Date();
+    const id = db.createId();
+    const cleanSubject = subject || 'No subject';
 
-    const ref = db.db.collection(COL).doc();
+    const counter = await countersCol().findOneAndUpdate(
+      { _id: guildId },
+      { $inc: { count: 1 }, $set: { updatedAt: now }, $setOnInsert: { createdAt: now } },
+      { upsert: true, returnDocument: 'after' }
+    );
+
     const ticket = {
-      id: ref.id,
+      _id: id,
       guildId,
       userId,
       channelId,
       threadId,
-      subject: subject || 'No subject',
+      subject: cleanSubject,
       status: 'open',
-      ticketNumber,
-      createdAt: db.now(),
+      ticketNumber: counter?.count ?? counter?.value?.count ?? 1,
+      createdAt: now,
+      updatedAt: now,
+      closedAt: null,
+      closedBy: null,
     };
-    await ref.set(ticket);
-    return ticket;
+
+    await ticketsCol().insertOne(ticket);
+    return normalize(ticket);
   }
 
   static async get(id) {
-    return db.getDoc(db.db.collection(COL).doc(id));
+    const doc = await ticketsCol().findOne({ _id: id });
+    return doc ? normalize(doc) : null;
   }
 
   static async getByThread(threadId) {
-    const snap = await db.db.collection(COL)
-      .where('threadId', '==', threadId)
-      .limit(1)
-      .get();
-    if (snap.empty) return null;
-    return { id: snap.docs[0].id, ...snap.docs[0].data() };
+    const doc = await ticketsCol().findOne({ threadId });
+    return doc ? normalize(doc) : null;
   }
 
   static async getOpenByUser(guildId, userId) {
-    const snap = await db.db.collection(COL)
-      .where('guildId', '==', guildId)
-      .where('userId', '==', userId)
-      .where('status', '==', 'open')
-      .limit(1)
-      .get();
-    if (snap.empty) return null;
-    return { id: snap.docs[0].id, ...snap.docs[0].data() };
+    const doc = await ticketsCol().findOne(
+      { guildId, userId, status: 'open' },
+      { sort: { createdAt: -1 } }
+    );
+    return doc ? normalize(doc) : null;
   }
 
   static async listOpen(guildId, limit = 25) {
-    const snap = await db.db.collection(COL)
-      .where('guildId', '==', guildId)
-      .where('status', '==', 'open')
-      .orderBy('createdAt', 'desc')
-      .limit(limit)
-      .get();
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const docs = await ticketsCol()
+      .find({ guildId, status: 'open' })
+      .sort({ createdAt: -1 })
+      .limit(Number(limit))
+      .toArray();
+    return docs.map(normalize);
   }
 
   static async close(id, closedBy) {
-    await db.setDoc(db.db.collection(COL).doc(id), {
-      status: 'closed',
-      closedAt: db.now(),
-      closedBy,
-    });
+    await ticketsCol().updateOne(
+      { _id: id },
+      { $set: { status: 'closed', closedBy, closedAt: new Date(), updatedAt: new Date() } }
+    );
   }
+}
+
+function normalize(doc) {
+  return {
+    id: doc._id,
+    guildId: doc.guildId,
+    userId: doc.userId,
+    channelId: doc.channelId,
+    threadId: doc.threadId,
+    subject: doc.subject,
+    status: doc.status,
+    ticketNumber: doc.ticketNumber,
+    createdAt: db.toTimestamp(doc.createdAt),
+    closedAt: db.toTimestamp(doc.closedAt),
+    closedBy: doc.closedBy ?? null,
+    updatedAt: db.toTimestamp(doc.updatedAt),
+  };
 }
 
 module.exports = Ticket;

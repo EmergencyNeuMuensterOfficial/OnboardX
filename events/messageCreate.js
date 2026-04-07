@@ -11,12 +11,18 @@
 const AutoModService  = require('../services/AutoModService');
 const AntiSpamService = require('../services/AntiSpamService');
 const LevelingService = require('../services/LevelingService');
+const VerificationService = require('../services/VerificationService');
 
 module.exports = {
   name: 'messageCreate',
 
   async execute(message) {
-    if (message.author.bot || message.webhookId || !message.guild) return;
+    if (message.author.bot || message.webhookId) return;
+
+    if (!message.guild) {
+      await VerificationService.handleDmAnswer(message);
+      return;
+    }
 
     // AutoMod runs first — removes illegal content
     const autoModFlagged = await AutoModService.check(message);

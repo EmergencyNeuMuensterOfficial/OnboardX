@@ -18,6 +18,7 @@ const { isOwner }         = require('../utils/permissions');
 
 // Service routers
 const GiveawayService      = require('../services/GiveawayService');
+const EventService         = require('../services/EventService');
 const VerificationService  = require('../services/VerificationService');
 const PollService          = require('../services/PollService');
 const TicketService        = require('../services/TicketService');
@@ -157,6 +158,10 @@ async function handleButton(interaction, client) {
 
   if (customId === 'verify_start') {
     return VerificationService.handleStart(interaction);
+  }
+
+  if (customId.startsWith('event_rsvp_')) {
+    return EventService.handleRsvp(interaction);
   }
 
   if (customId === 'poll_close') {

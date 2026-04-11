@@ -22,6 +22,7 @@ module.exports = {
     leveling:    60_000,   // 60 s — XP gain cooldown per message
     verification: 5 * 60_000, // 5 min — Verification attempt
     giveaway:    10_000,
+    event:        5_000,
     poll:         5_000,
   },
 
@@ -46,6 +47,14 @@ module.exports = {
     minDuration: 60_000,           // 1 minute
     maxDuration: 30 * 24 * 3_600_000, // 30 days
     defaultWinners: 1,
+  },
+
+  // Events / calendar
+  event: {
+    defaultReminderMinutes: 30,
+    minLeadMs: 5 * 60_000,
+    maxLeadMs: 365 * 24 * 3_600_000,
+    allowedRepeats: ['none', 'daily', 'weekly', 'monthly'],
   },
 
   // ── Poll Defaults ─────────────────────────────────────────────────────────

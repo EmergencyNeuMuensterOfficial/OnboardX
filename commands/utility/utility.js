@@ -199,6 +199,10 @@ module.exports = {
             value: '`/poll create` `/poll close` `/poll results`',
           },
           {
+            name:  '📅 Events',
+            value: '`/event create` `/event list` `/event cancel` `/event rsvp`',
+          },
+          {
             name:  '🔐 Verification',
             value: '`/verify panel` `/verify force` `/verify status`',
           },

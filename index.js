@@ -73,6 +73,7 @@ client.cluster = new ClusterClient(client);
 client.commands    = new Collection(); // commandName → command module
 client.cooldowns   = new Collection(); // `commandName:userId` → expiry timestamp
 client.giveaways   = new Collection(); // giveawayId → setTimeout handle
+client.scheduledEvents = new Collection(); // eventId → { reminder, start }
 client.configCache = new Collection(); // guildId → { data, expiresAt }
 client.shardTag    = shardTag;         // human-readable label for log lines
 
@@ -96,7 +97,11 @@ async function main() {
     const GiveawayService = require('./services/GiveawayService');
     await GiveawayService.restoreGiveaways(client);
 
-    // 4. Connect to Discord
+    // 4. Restore scheduled event reminders / rollovers
+    const EventService = require('./services/EventService');
+    await EventService.restoreEvents(client);
+
+    // 5. Connect to Discord
     await client.login(process.env.DISCORD_TOKEN);
   } catch (err) {
     logger.error(`${shardTag} Fatal startup error:`, err);

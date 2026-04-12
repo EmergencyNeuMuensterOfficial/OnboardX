@@ -240,6 +240,11 @@ async function collectStats(mgr) {
   const totalShards = results.reduce((a, r) => a + (r.shardCount ?? 0), 0);
   const readyClusters = results.filter(r => r.ready).length;
   const readyShards = results.reduce((a, r) => a + r.shardStates.filter(shard => shard.ready).length, 0);
+  const gatewayClusters = countBy(results, cluster => cluster.wsStatusLabel ?? cluster.state ?? 'unknown');
+  const gatewayShards = countBy(results.flatMap(cluster => cluster.shardStates ?? []), shard => shard.state ?? 'unknown');
+  const gatewayPings = results
+    .map(cluster => Number(cluster.ping))
+    .filter(ping => Number.isFinite(ping) && ping >= 0);
 
   return {
     clusterCount: mgr.clusters.size,
@@ -250,6 +255,19 @@ async function collectStats(mgr) {
     totalUsers,
     avgPingMs,
     memoryMB: +(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1),
+    discordGateway: {
+      clusters: gatewayClusters,
+      shards: gatewayShards,
+      avgPingMs: gatewayPings.length
+        ? Math.round(gatewayPings.reduce((sum, ping) => sum + ping, 0) / gatewayPings.length)
+        : -1,
+      reconnectingClusters: gatewayClusters.reconnecting ?? 0,
+      disconnectedClusters: gatewayClusters.disconnected ?? 0,
+      reconnectingShards: gatewayShards.reconnecting ?? 0,
+      disconnectedShards: gatewayShards.disconnected ?? 0,
+      readyShards,
+      totalShards,
+    },
     perCluster: results,
   };
 }
@@ -313,6 +331,7 @@ async function syncClusterStatusToFirebase(mgr, stats = null) {
     totalUsers: snapshot.totalUsers,
     avgPingMs: snapshot.avgPingMs,
     memoryMB: snapshot.memoryMB,
+    discordGateway: snapshot.discordGateway,
     maintenance,
     lastSnapshotAt: nowIso,
     expiresAt: expiresAtIso,
@@ -329,6 +348,7 @@ async function syncClusterStatusToFirebase(mgr, stats = null) {
     maintenance,
     clusters: { total: snapshot.clusterCount, ready: snapshot.readyClusters },
     shards: { total: snapshot.totalShards, ready: snapshot.readyShards },
+    discordGateway: snapshot.discordGateway,
     source: 'local',
   });
 }
@@ -407,6 +427,17 @@ async function markSystemStopped(extra = {}) {
       state: maintenance.enabled ? 'maintenance' : 'stopped',
       managerPid: process.pid,
       host: os.hostname(),
+      discordGateway: lastSnapshot?.discordGateway ?? {
+        clusters: {},
+        shards: {},
+        avgPingMs: -1,
+        reconnectingClusters: 0,
+        disconnectedClusters: 0,
+        reconnectingShards: 0,
+        disconnectedShards: 0,
+        readyShards: 0,
+        totalShards: lastSnapshot?.totalShards ?? 0,
+      },
       maintenance,
       stoppedAt: nowIso,
       lastSnapshotAt: nowIso,
@@ -427,6 +458,7 @@ async function markSystemStopped(extra = {}) {
     expiresAt: expiresAtIso,
     lastSnapshotAt: nowIso,
     maintenance,
+    discordGateway: lastSnapshot?.discordGateway ?? null,
     ...extra,
     source: 'local',
   });
@@ -461,6 +493,7 @@ async function resolveTotalShards() {
 async function spawnClustersParallel(totalShards) {
   const shardList = Array.from(Array(totalShards).keys());
   const shardClusterList = chunkArray(shardList, SHARDS_PER_CLUSTER);
+  const effectiveWaitReady = CLUSTER_WAIT_READY_ON_SPAWN && CLUSTER_SPAWN_CONCURRENCY <= 2;
 
   // Keep manager internals consistent for /clusters + broadcastEval mapping.
   manager.totalShards = totalShards;
@@ -468,9 +501,22 @@ async function spawnClustersParallel(totalShards) {
   manager.shardClusterList = shardClusterList;
   manager.totalClusters = shardClusterList.length;
 
-  const concurrency = Math.max(1, CLUSTER_SPAWN_CONCURRENCY || 1);
+  const concurrency = effectiveWaitReady
+    ? Math.max(1, Math.min(2, CLUSTER_SPAWN_CONCURRENCY || 1))
+    : Math.max(1, Math.min(3, CLUSTER_SPAWN_CONCURRENCY || 1));
   let spawned = 0;
   let failed = 0;
+
+  if (CLUSTER_WAIT_READY_ON_SPAWN && !effectiveWaitReady) {
+    logger.warn(
+      `[Manager] CLUSTER_WAIT_READY_ON_SPAWN=true is disabled for this boot because ` +
+      `CLUSTER_SPAWN_CONCURRENCY=${CLUSTER_SPAWN_CONCURRENCY} is too high and causes READY timeout / IPC issues.`
+    );
+  }
+
+  if (concurrency !== CLUSTER_SPAWN_CONCURRENCY) {
+    logger.warn(`[Manager] Cluster spawn concurrency capped to ${concurrency} for stability.`);
+  }
 
   for (let i = 0; i < shardClusterList.length; i += concurrency) {
     const batch = shardClusterList.slice(i, i + concurrency);
@@ -483,7 +529,7 @@ async function spawnClustersParallel(totalShards) {
         // Some hosts start slowly enough that READY timeouts kill the manager
         // even though the child process is healthy and will connect moments later.
         // We only wait if explicitly requested and clamp the timeout safely.
-        const spawnTimeout = CLUSTER_WAIT_READY_ON_SPAWN
+        const spawnTimeout = effectiveWaitReady
           ? Math.max(
             30_000,
             CLUSTER_READY_TIMEOUT_BASE_MS + (CLUSTER_READY_TIMEOUT_PER_SHARD_MS * (shardsToSpawn?.length ?? 1))
@@ -552,7 +598,7 @@ async function ensureClusterRespawn(cluster, reason = 'unknown') {
       lastEventAt: new Date().toISOString(),
       respawnReason: reason,
     }).catch(() => {});
-  } finally {
+  } finally {           
     respawningClusters.delete(cluster.id);
   }
 }
@@ -564,4 +610,12 @@ function fmtMemory() {
     heapTotalMB: +(m.heapTotal / 1024 / 1024).toFixed(1),
     rssMB: +(m.rss / 1024 / 1024).toFixed(1),
   };
+}
+
+function countBy(values, selector) {
+  return values.reduce((accumulator, value) => {
+    const key = selector(value) ?? 'unknown';
+    accumulator[key] = (accumulator[key] ?? 0) + 1;
+    return accumulator;
+  }, {});
 }

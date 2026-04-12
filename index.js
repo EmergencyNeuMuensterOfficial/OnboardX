@@ -37,6 +37,7 @@ const hybridInfo    = getInfo();
 const isUnderCluster = hybridInfo.SHARD_LIST.length > 0;
 const clusterId      = hybridInfo.CLUSTER ?? 0;
 const shardTag       = isUnderCluster ? `[Cluster #${clusterId}]` : '[Bot]';
+const enablePresenceIntent = process.env.ENABLE_PRESENCE_INTENT === 'true';
 
 // ─── Client ───────────────────────────────────────────────────────────────────
 const client = new Client({
@@ -53,8 +54,8 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMessageReactions,
     GatewayIntentBits.GuildModeration,
-    GatewayIntentBits.GuildPresences,
     GatewayIntentBits.DirectMessages,
+    ...(enablePresenceIntent ? [GatewayIntentBits.GuildPresences] : []),
   ],
   partials: [
     Partials.Message,
@@ -93,15 +94,11 @@ async function main() {
     await loadCommands(client);
     await loadEvents(client);
 
-    // 3. Restore giveaway timers that were running before this cluster restarted
-    const GiveawayService = require('./services/GiveawayService');
-    await GiveawayService.restoreGiveaways(client);
+    client.once('clientReady', () => {
+      void restoreRuntimeState();
+    });
 
-    // 4. Restore scheduled event reminders / rollovers
-    const EventService = require('./services/EventService');
-    await EventService.restoreEvents(client);
-
-    // 5. Connect to Discord
+    // 3. Connect to Discord
     await client.login(process.env.DISCORD_TOKEN);
   } catch (err) {
     logger.error(`${shardTag} Fatal startup error:`, err);
@@ -109,13 +106,44 @@ async function main() {
   }
 }
 
+async function restoreRuntimeState() {
+  try {
+    const GiveawayService = require('./services/GiveawayService');
+    await GiveawayService.restoreGiveaways(client);
+  } catch (err) {
+    logger.warn(`${shardTag} Giveaway restore failed: ${err.message}`);
+  }
+
+  try {
+    const EventService = require('./services/EventService');
+    await EventService.restoreEvents(client);
+  } catch (err) {
+    logger.warn(`${shardTag} Event restore failed: ${err.message}`);
+  }
+}
+
 // ─── Process-level safety ─────────────────────────────────────────────────────
-process.on('unhandledRejection', reason =>
-  logger.error(`${shardTag} Unhandled rejection:`, reason)
-);
+process.on('unhandledRejection', reason => {
+  if (isClosedIpcError(reason)) {
+    logger.warn(`${shardTag} IPC channel closed during shutdown; exiting cluster process cleanly.`);
+    process.exit(0);
+  }
+  logger.error(`${shardTag} Unhandled rejection:`, reason);
+});
 process.on('uncaughtException', err => {
+  if (isClosedIpcError(err)) {
+    logger.warn(`${shardTag} IPC channel closed during shutdown; exiting cluster process cleanly.`);
+    process.exit(0);
+  }
   logger.error(`${shardTag} Uncaught exception:`, err);
   process.exit(1);
+});
+process.on('disconnect', () => {
+  logger.warn(`${shardTag} IPC disconnected; destroying client and exiting.`);
+  try {
+    client.destroy();
+  } catch { /* ignore */ }
+  process.exit(0);
 });
 process.on('SIGINT', () => {
   logger.info(`${shardTag} SIGINT — destroying client`);
@@ -131,3 +159,7 @@ process.on('SIGTERM', () => {
 main();
 
 module.exports = client;
+
+function isClosedIpcError(error) {
+  return error?.code === 'ERR_IPC_CHANNEL_CLOSED' || /Channel closed/i.test(String(error?.message ?? ''));
+}

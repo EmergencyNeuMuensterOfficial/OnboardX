@@ -50,7 +50,12 @@ async function loadCommands(client) {
   logger.info(`Loaded ${client.commands.size} commands.`);
 
   // Deploy commands to Discord (run separately in production via `npm run deploy`)
-  if (process.env.AUTO_DEPLOY === 'true' && isPrimaryCluster) {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const allowProductionDeploy = process.env.AUTO_DEPLOY_IN_PRODUCTION === 'true';
+
+  if (process.env.AUTO_DEPLOY === 'true' && isProduction && !allowProductionDeploy) {
+    logger.info('Skipping auto deploy in production boot. Use `npm run deploy` or set AUTO_DEPLOY_IN_PRODUCTION=true if you really want deploy-on-start.');
+  } else if (process.env.AUTO_DEPLOY === 'true' && isPrimaryCluster) {
     await deployCommands(jsonBody);
   } else if (process.env.AUTO_DEPLOY === 'true' && !isPrimaryCluster) {
     logger.info(`Skipping auto deploy on cluster #${clusterId}; primary cluster handles command registration.`);

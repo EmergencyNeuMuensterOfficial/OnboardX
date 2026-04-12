@@ -38,9 +38,11 @@ const DEFAULTS = {
   dupeWindow:       10_000,
   // Mention spam
   mentionLimit:     5,     // mentions per message
+  mentionSpamEnabled: true,
   // Raid detection
   raidJoinCount:    10,    // N joins
   raidJoinWindow:   10_000,// within N ms → lockdown
+  raidJoinEnabled:  true,
   // Punishment
   punishment:       'mute', // 'delete' | 'warn' | 'mute' | 'kick' | 'ban'
   muteDurationMs:   10 * 60_000, // 10 min
@@ -67,7 +69,7 @@ class AntiSpamService {
 
     // ── 1. Mention spam ──────────────────────────────────────────────────
     const mentions = message.mentions.users.size + message.mentions.roles.size;
-    if (mentions >= s.mentionLimit) {
+    if (s.mentionSpamEnabled !== false && mentions >= s.mentionLimit) {
       await AntiSpamService._punish(message, s, `Mention spam (${mentions} mentions)`);
       return true;
     }
@@ -115,6 +117,7 @@ class AntiSpamService {
     if (!config.modules?.antispam) return;
 
     const s   = { ...DEFAULTS, ...(config.antispam ?? {}) };
+    if (s.raidJoinEnabled === false) return;
     const now = Date.now();
 
     if (!joinTracker.has(guild.id)) joinTracker.set(guild.id, []);

@@ -100,12 +100,20 @@ class AutoModService {
   static async _action(message, am, reason) {
     await message.delete().catch(() => {});
 
-    // Send ephemeral-style notice to the channel (auto-deletes after 5s)
-    const notice = await message.channel.send({
-      embeds: [embed.warn('⚠️ Message Removed', `${message.author} — ${reason}`)],
-    }).catch(() => null);
+    const action = am.action ?? 'delete_warn';
 
-    if (notice) setTimeout(() => notice.delete().catch(() => {}), 5_000);
+    if (action !== 'delete') {
+      const notice = await message.channel.send({
+        embeds: [embed.warn('⚠️ Message Removed', `${message.author} — ${reason}`)],
+      }).catch(() => null);
+
+      if (notice) setTimeout(() => notice.delete().catch(() => {}), 5_000);
+    }
+
+    if ((action === 'delete_timeout5' || action === 'delete_timeout30') && message.member?.moderatable) {
+      const durationMs = action === 'delete_timeout30' ? 30 * 60_000 : 5 * 60_000;
+      await message.member.timeout(durationMs, `AutoMod: ${reason}`).catch(() => {});
+    }
 
     // Log the action
     await LoggingService.logModAction(message.guild, {

@@ -56,7 +56,8 @@ function warn(title, description) {
 function info(title, description) {
   return base({ color: config.botColor })
     .setTitle(`ℹ️ ${title}`)
-    .setDescription(description);
+    .setDescription(description)
+    .setAuthor({ name: "OnboardX V2"});
 }
 
 /**

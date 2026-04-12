@@ -9,7 +9,7 @@
 module.exports = {
   // ── Bot Meta ──────────────────────────────────────────────────────────────
   botName:    'OnboardX V2',
-  botVersion: '0.5.0',
+  botVersion: '0.5.35b',
   botColor:   0x5865F2, // Discord Blurple
   errorColor: 0xED4245, // Red
   warnColor:  0xFEE75C, // Yellow
@@ -81,12 +81,12 @@ module.exports = {
 
   // ── Cache TTL (ms) ────────────────────────────────────────────────────────
   cache: {
-    guildConfigTTL: 5 * 60_000, // 5 min
+    guildConfigTTL: parseInt(process.env.GUILD_CONFIG_TTL_MS ?? '15000', 10), // 15s
     userXPTTL:      2 * 60_000, // 2 min
   },
 
   // ── Embed Footer ──────────────────────────────────────────────────────────
-  embedFooter: 'OnboardX V2 • Powered by Discord.js v14',
+  embedFooter: 'OnboardX V2 • V0.5.25b',
 
   // ── Owners (bypass all cooldowns & checks) ────────────────────────────────
   owners: (process.env.BOT_OWNERS || '').split(',').filter(Boolean),

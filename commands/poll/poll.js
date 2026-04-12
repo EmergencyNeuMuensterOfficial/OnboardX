@@ -47,7 +47,7 @@ module.exports = {
 
     .addSubcommand(sub => sub
       .setName('close')
-      .setDescription('Close a poll early (creator or admin only).')
+      .setDescription('Close a poll early (creator only).')
       .addStringOption(o => o.setName('id').setDescription('Poll document ID').setRequired(true))
     )
 
@@ -103,10 +103,12 @@ module.exports = {
       if (!poll) {
         return interaction.reply({ embeds: [embed.error('Not Found', 'Poll not found.')], flags: MessageFlags.Ephemeral });
       }
+
       if (poll.createdBy !== interaction.user.id) {
-        if (!canManagePolls(interaction, guildCfg)) {
-          if (!await assertPermission(interaction, 'mod')) return;
-        }
+        return interaction.reply({
+          embeds: [embed.error('Not Allowed', 'Only the poll creator can close this poll.')],
+          flags: MessageFlags.Ephemeral,
+        });
       }
 
       await PollService.close(client, id);

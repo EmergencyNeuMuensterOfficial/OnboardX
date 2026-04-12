@@ -8,7 +8,6 @@
 const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const GiveawayService      = require('../../services/GiveawayService');
 const Giveaway             = require('../../models/Giveaway');
-const GuildConfig          = require('../../models/GuildConfig');
 const embed                = require('../../utils/embed');
 const time                 = require('../../utils/time');
 const cfg                  = require('../../config/default');
@@ -71,7 +70,7 @@ module.exports = {
     const sub = interaction.options.getSubcommand();
 
     // Mod check for management commands
-    if (['start', 'end', 'reroll'].includes(sub)) {
+    if (sub === 'start') {
       if (!canManageGiveaways(interaction, guildCfg)) {
         if (!await assertPermission(interaction, 'mod')) return;
       }
@@ -140,6 +139,22 @@ module.exports = {
     // ── End ────────────────────────────────────────────────────────────────
     if (sub === 'end') {
       const id = interaction.options.getString('id');
+      const giveaway = await Giveaway.get(id);
+
+      if (!giveaway) {
+        return interaction.reply({
+          embeds: [embed.error('Not Found', 'Giveaway not found.')],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (giveaway.hostedBy !== interaction.user.id) {
+        return interaction.reply({
+          embeds: [embed.error('Not Allowed', 'Only the giveaway creator can end this giveaway.')],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       await GiveawayService.end(client, id);
       return interaction.editReply({ embeds: [embed.success('Ended', 'Giveaway ended and winners selected.')] });
@@ -149,6 +164,21 @@ module.exports = {
     if (sub === 'reroll') {
       const id    = interaction.options.getString('id');
       const count = interaction.options.getInteger('count') ?? 1;
+      const giveaway = await Giveaway.get(id);
+
+      if (!giveaway) {
+        return interaction.reply({
+          embeds: [embed.error('Not Found', 'Giveaway not found.')],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (giveaway.hostedBy !== interaction.user.id) {
+        return interaction.reply({
+          embeds: [embed.error('Not Allowed', 'Only the giveaway creator can reroll this giveaway.')],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
 
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const newWinners = await GiveawayService.reroll(client, id, count);

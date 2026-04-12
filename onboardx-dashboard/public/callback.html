@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OnboardX — Anmelden…</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: #080b14;
+    color: #f0f4ff;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .logo {
+    width: 56px; height: 56px;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 700;
+    box-shadow: 0 0 30px rgba(59,130,246,0.4);
+    font-family: monospace;
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse { 0%,100%{box-shadow:0 0 30px rgba(59,130,246,.4)} 50%{box-shadow:0 0 50px rgba(59,130,246,.7)} }
+  h2 { font-family: 'Syne', sans-serif; font-size: 20px; }
+  p  { color: #8b9ab5; font-size: 14px; }
+  .err { color: #ef4444; max-width: 360px; text-align: center; }
+  a  { color: #3b82f6; }
+</style>
+</head>
+<body>
+  <div class="logo">OX</div>
+  <h2 id="title">Anmelden…</h2>
+  <p  id="sub">Bitte warten, du wirst gleich weitergeleitet.</p>
+
+<script>
+(async () => {
+  const params = new URLSearchParams(window.location.search);
+  const code   = params.get('code');
+  const errParam = params.get('error');
+
+  if (errParam || !code) {
+    document.getElementById('title').textContent = 'Anmeldung abgebrochen';
+    document.getElementById('sub').innerHTML = `<span class="err">Discord hat den Zugriff verweigert. <a href="/">Zurück zur Startseite →</a></span>`;
+    return;
+  }
+
+  try {
+    const res  = await fetch(`/api/auth?code=${encodeURIComponent(code)}`);
+    const data = await res.json();
+
+    if (!res.ok || !data.token) throw new Error(data.error || 'Unbekannter Fehler');
+
+    localStorage.setItem('ox_token', data.token);
+    localStorage.setItem('ox_user',  JSON.stringify(data.user));
+
+    document.getElementById('title').textContent = `Willkommen, ${data.user.username}!`;
+    document.getElementById('sub').textContent   = 'Du wirst weitergeleitet…';
+
+    setTimeout(() => window.location.href = '/dashboard', 800);
+  } catch (e) {
+    document.getElementById('title').textContent = 'Fehler bei der Anmeldung';
+    document.getElementById('sub').innerHTML =
+      `<span class="err">${e.message}<br><br><a href="/">Zurück zur Startseite →</a></span>`;
+  }
+})();
+</script>
+</body>
+</html>

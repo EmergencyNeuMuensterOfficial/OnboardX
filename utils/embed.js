@@ -118,14 +118,14 @@ function giveaway({ prize, winners, endsAt, hostedBy, entries = 0, ended = false
 /**
  * Poll embed.
  */
-function poll({ question, options, anonymous, endsAt, totalVotes = 0 }) {
+function poll({ question, options, anonymous, endsAt, totalVotes = 0, pollId = null }) {
   const optionLines = options.map((opt, i) => {
     const pct = totalVotes ? Math.round((opt.votes / totalVotes) * 100) : 0;
     const bar = buildBar(pct);
     return `**${i + 1}.** ${opt.label}\n${bar} ${pct}% (${opt.votes} vote${opt.votes !== 1 ? 's' : ''})`;
   });
 
-  return base({ color: config.botColor })
+  return base({ color: config.botColor, footer: pollId ? `Poll ID: ${pollId}` : config.embedFooter })
     .setTitle(`📊 ${question}`)
     .setDescription(optionLines.join('\n\n'))
     .addFields(

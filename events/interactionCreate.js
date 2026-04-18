@@ -165,13 +165,33 @@ async function handleButton(interaction, client) {
   }
 
   if (customId === 'poll_close') {
-    // Only the poll creator or mods can close
     const poll = await require('../models/Poll').getByMessage(interaction.message.id);
-    if (!poll) return interaction.reply({ embeds: [embed.error('Not Found', 'Poll not found.')], flags: MessageFlags.Ephemeral });
-    if (poll.createdBy !== interaction.user.id && !interaction.member.permissions.has(8n)) {
-      return interaction.reply({ embeds: [embed.error('Forbidden', 'Only the poll creator or admins can close this poll.')], flags: MessageFlags.Ephemeral });
+    if (!poll) {
+      return interaction.reply({
+        embeds: [embed.error('Not Found', 'Poll not found.')],
+        flags: MessageFlags.Ephemeral,
+      });
     }
-    return PollService.close(client, poll.id);
+
+    if (poll.createdBy !== interaction.user.id) {
+      return interaction.reply({
+        embeds: [embed.error('Forbidden', 'Only the poll creator can close this poll.')],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    if (poll.ended) {
+      return interaction.reply({
+        embeds: [embed.warn('Already Closed', 'This poll is already closed.')],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    await PollService.close(client, poll.id);
+    return interaction.editReply({
+      embeds: [embed.success('Poll Closed', `Poll \`${poll.id}\` has been closed.`)],
+    });
   }
 
   if (customId.startsWith('poll_vote_')) {

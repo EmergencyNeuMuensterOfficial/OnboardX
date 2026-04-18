@@ -60,8 +60,10 @@ class PollService {
       )
     );
 
-    const pollEmbed = embed.poll({ question, options: pollOptions, anonymous, endsAt, totalVotes: 0 });
-    const msg       = await channel.send({ embeds: [pollEmbed], components: rows });
+    const msg = await channel.send({
+      embeds: [embed.poll({ question, options: pollOptions, anonymous, endsAt, totalVotes: 0 })],
+      components: rows,
+    });
 
     const poll = await Poll.create({
       guildId:  channel.guild.id,
@@ -73,6 +75,11 @@ class PollService {
       multiVote,
       endsAt,
       createdBy,
+    });
+
+    await msg.edit({
+      embeds: [embed.poll({ question, options: pollOptions, anonymous, endsAt, totalVotes: 0, pollId: poll.id })],
+      components: rows,
     });
 
     // Auto-close timer
@@ -131,6 +138,7 @@ class PollService {
       anonymous:  updated.anonymous,
       endsAt,
       totalVotes,
+      pollId: updated.id,
     });
 
     await interaction.update({ embeds: [pollEmbed] });
@@ -171,6 +179,7 @@ class PollService {
         anonymous:  poll.anonymous,
         endsAt,
         totalVotes,
+        pollId: poll.id,
       }).setTitle(`📊 [CLOSED] ${poll.question}`).setColor(0x95a5a6);
 
       // Disable all buttons

@@ -1,27 +1,64 @@
 // netlify/functions/_utils.js
-// Shared helpers: DB connection, JWT verification, access checks, config mapping
 
 const { MongoClient } = require('mongodb');
-const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 
 let cachedClient = null;
+let cachedDb = null;
 
 async function getDb() {
   if (!cachedClient) {
-    cachedClient = new MongoClient(process.env.MONGODB_URI);
+    const uri = process.env.MONGODB_URI;
+    if (!uri) throw new Error('Missing MONGODB_URI');
+
+    cachedClient = new MongoClient(uri, {
+      ignoreUndefined: true,
+      serverSelectionTimeoutMS: Number(process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS || 15000),
+      connectTimeoutMS: Number(process.env.MONGODB_CONNECT_TIMEOUT_MS || 15000),
+      socketTimeoutMS: Number(process.env.MONGODB_SOCKET_TIMEOUT_MS || 45000),
+      maxPoolSize: Number(process.env.MONGODB_MAX_POOL_SIZE || 10),
+      minPoolSize: Number(process.env.MONGODB_MIN_POOL_SIZE || 0),
+      family: Number(process.env.MONGODB_IP_FAMILY || 4),
+      directConnection: process.env.MONGODB_DIRECT_CONNECTION === 'true',
+      tls: process.env.MONGODB_TLS
+        ? process.env.MONGODB_TLS === 'true'
+        : uri.startsWith('mongodb+srv://'),
+      tlsAllowInvalidCertificates: process.env.MONGODB_TLS_ALLOW_INVALID_CERTIFICATES === 'true',
+      tlsAllowInvalidHostnames: process.env.MONGODB_TLS_ALLOW_INVALID_HOSTNAMES === 'true',
+      retryWrites: process.env.MONGODB_RETRY_WRITES !== 'false',
+    });
+
     await cachedClient.connect();
+    cachedDb = cachedClient.db(
+      process.env.MONGODB_DATABASE ||
+      process.env.DB_NAME ||
+      'OnboardX'
+    );
   }
 
-  return cachedClient.db(process.env.MONGODB_DATABASE || 'onboardx');
+  return cachedDb;
 }
 
 function signToken(payload) {
-  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error('Missing JWT_SECRET');
+
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const now = Math.floor(Date.now() / 1000);
+  const body = {
+    ...payload,
+    iat: now,
+    exp: now + (7 * 24 * 60 * 60),
+  };
+
+  return signJwt(header, body, secret);
 }
 
 function verifyToken(authHeader) {
   if (!authHeader?.startsWith('Bearer ')) throw new Error('No token');
-  return jwt.verify(authHeader.slice(7), process.env.JWT_SECRET);
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error('Missing JWT_SECRET');
+  return verifyJwt(authHeader.slice(7), secret);
 }
 
 const CORS = {
@@ -50,6 +87,10 @@ function options() {
   return { statusCode: 204, headers: CORS, body: '' };
 }
 
+function preflight() {
+  return options();
+}
+
 async function discordFetch(path, accessToken) {
   const res = await fetch(`https://discord.com/api/v10${path}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -59,361 +100,85 @@ async function discordFetch(path, accessToken) {
 }
 
 async function botFetch(path) {
+  const token = process.env.DISCORD_BOT_TOKEN;
+  if (!token) throw new Error('Missing DISCORD_BOT_TOKEN');
+
   const res = await fetch(`https://discord.com/api/v10${path}`, {
-    headers: { Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}` },
+    headers: { Authorization: `Bot ${token}` },
   });
   if (!res.ok) throw new Error(`Bot API ${res.status}: ${path}`);
   return res.json();
 }
 
-async function getManagedGuildAccess(discordToken, guildId) {
-  const [userGuilds, botGuilds] = await Promise.all([
-    discordFetch('/users/@me/guilds', discordToken),
-    botFetch('/users/@me/guilds'),
-  ]);
+async function getManagedGuildAccess(userOrToken, guildId) {
+  let guild = null;
+  let allowedFromToken = null;
+  const discordToken = typeof userOrToken === 'string' ? userOrToken : userOrToken?.discordToken;
+  const manageableGuilds = Array.isArray(userOrToken?.manageableGuilds) ? userOrToken.manageableGuilds : null;
+  const manageableGuildIds = Array.isArray(userOrToken?.manageableGuildIds) ? userOrToken.manageableGuildIds : null;
 
-  const guild = userGuilds.find(entry => entry.id === guildId);
-  if (!guild) return { allowed: false, reason: 'guild_not_found' };
+  if (manageableGuilds) {
+    guild = manageableGuilds.find(entry => entry.id === guildId) ?? null;
+    allowedFromToken = Boolean(guild);
+  }
 
-  const botGuildIds = new Set(botGuilds.map(entry => entry.id));
-  if (!botGuildIds.has(guildId)) {
+  if (!guild && manageableGuildIds) {
+    allowedFromToken = manageableGuildIds.includes(guildId);
+  }
+
+  if (allowedFromToken === null) {
+    if (!discordToken) return { allowed: false, reason: 'missing_discord_token' };
+    const userGuilds = await discordFetch('/users/@me/guilds', discordToken);
+    guild = userGuilds.find(entry => entry.id === guildId);
+    if (!guild) return { allowed: false, reason: 'guild_not_found' };
+
+    if (guild.owner) {
+      allowedFromToken = true;
+    } else {
+      const perms = BigInt(guild.permissions ?? 0);
+      const ADMINISTRATOR = BigInt(0x8);
+      const MANAGE_GUILD = BigInt(0x20);
+      const MANAGE_CHANNELS = BigInt(0x10);
+      const MANAGE_ROLES = BigInt(0x10000000);
+      const KICK_MEMBERS = BigInt(0x2);
+      const BAN_MEMBERS = BigInt(0x4);
+
+      allowedFromToken = [
+        ADMINISTRATOR,
+        MANAGE_GUILD,
+        MANAGE_CHANNELS,
+        MANAGE_ROLES,
+        KICK_MEMBERS,
+        BAN_MEMBERS,
+      ].some(bit => (perms & bit) !== 0n);
+    }
+  }
+
+  if (!allowedFromToken) return { allowed: false, reason: 'missing_permissions', guild };
+
+  try {
+    await botFetch(`/guilds/${guildId}`);
+  } catch {
     return { allowed: false, reason: 'bot_not_in_guild' };
   }
 
-  if (guild.owner) return { allowed: true, guild };
-
-  const perms = BigInt(guild.permissions ?? 0);
-  const hasAccess = (perms & BigInt(0x8)) !== 0n || (perms & BigInt(0x20)) !== 0n;
-  return { allowed: hasAccess, reason: hasAccess ? null : 'missing_permissions', guild };
+  return { allowed: true, reason: null, guild };
 }
 
 function defaultConfig(guildId) {
-  return dashboardConfigFromBotConfig(botDefaultConfig(guildId), guildId);
-}
-
-function botDefaultConfig(guildId) {
   return {
     guildId,
-    prefix: '!',
-    language: 'en',
-    modules: {
-      logging: false,
-      verification: false,
-      leveling: true,
-      giveaways: true,
-      polls: true,
-      joinRoles: false,
-      welcome: false,
-      automod: false,
-      antispam: false,
-      reactionRoles: false,
-      tickets: false,
-    },
-    logging: {
-      channelId: null,
-      events: {
-        messageDelete: true,
-        messageEdit: true,
-        memberJoin: true,
-        memberLeave: true,
-        roleChange: true,
-        modAction: true,
-        channelCreate: false,
-        channelDelete: false,
-        voiceUpdate: false,
-      },
-    },
-    verification: {
-      channelId: null,
-      roleId: null,
-      type: 'math',
-      timeout: 120,
-      maxAttempts: 3,
-      dmFallback: true,
-      onFail: 'timeout_24h',
-      difficulty: 'medium',
-      expireMinutes: 10,
-    },
-    leveling: {
-      channelId: null,
-      multiplier: 1,
-      roleRewards: [],
-      customMessage: null,
-      stackRoles: false,
-    },
-    giveaway: {
-      managerRoleId: null,
-    },
-    poll: {
-      managerRoleId: null,
-    },
-    welcome: {
-      channelId: null,
-      farewellChannelId: null,
-      dmEnabled: false,
-      dmMessage: null,
-      autoRoleId: null,
-      message: null,
-      title: null,
-      farewellMessage: null,
-      farewellTitle: null,
-      color: null,
-      farewellColor: null,
-      bannerUrl: null,
-    },
-    automod: {
-      wordFilter: { enabled: false, words: [] },
-      inviteFilter: { enabled: false },
-      linkFilter: { enabled: false, whitelist: [] },
-      capsFilter: { enabled: false, threshold: 70 },
-      zalgoFilter: { enabled: false, threshold: 10 },
-      action: 'delete_warn',
-    },
-    antispam: {
-      enabled: false,
-      msgLimit: 6,
-      msgWindow: 5000,
-      dupeLimit: 4,
-      dupeWindow: 10000,
-      mentionLimit: 5,
-      mentionSpamEnabled: true,
-      raidJoinCount: 10,
-      raidJoinWindow: 10000,
-      raidJoinEnabled: true,
-      punishment: 'mute',
-      muteDurationMs: 600000,
-    },
-    tickets: {
-      channelId: null,
-      supportRoleId: null,
-      logChannelId: null,
-      maxOpenPerUser: 1,
-      transcripts: true,
-    },
-    moderation: {
-      warnThresholds: {
-        3: 'mute',
-        5: 'kick',
-        7: 'ban',
-      },
-      muteRoleId: null,
-    },
-    premium: false,
-    premiumTier: null,
-    dashboard: {
-      ui: null,
-    },
-  };
-}
-
-function dashboardConfigFromBotConfig(botConfig, guildId) {
-  const source = mergeDeep(botDefaultConfig(guildId), botConfig ?? {});
-  const storedUi = source.dashboard?.ui ?? {};
-  const base = mergeDeep(dashboardDefaults(guildId), storedUi);
-
-  base.guildId = guildId;
-  base.system = mergeDeep(base.system, source.system ?? {});
-  base.moderation.warnThresholdTimeout = findWarnThreshold(source.moderation?.warnThresholds, 'mute', base.moderation.warnThresholdTimeout);
-  base.moderation.warnThresholdKick = findWarnThreshold(source.moderation?.warnThresholds, 'kick', base.moderation.warnThresholdKick);
-  base.moderation.warnThresholdBan = findWarnThreshold(source.moderation?.warnThresholds, 'ban', base.moderation.warnThresholdBan);
-  base.moderation.modLogChannel = source.logging?.channelId ?? base.moderation.modLogChannel ?? '';
-
-  base.automod.enabled = Boolean(source.modules?.automod || source.modules?.antispam);
-  base.automod.antiInvite = Boolean(source.automod?.inviteFilter?.enabled);
-  base.automod.antiLinks = Boolean(source.automod?.linkFilter?.enabled);
-  base.automod.antiCaps = Boolean(source.automod?.capsFilter?.enabled);
-  base.automod.antiZalgo = Boolean(source.automod?.zalgoFilter?.enabled);
-  base.automod.antiMentionSpam = source.antispam?.mentionSpamEnabled !== false;
-  base.automod.antiRaid = source.antispam?.raidJoinEnabled !== false;
-  base.automod.maxMessagesPerFive = source.antispam?.msgLimit ?? base.automod.maxMessagesPerFive;
-  base.automod.maxMentionsPerMessage = source.antispam?.mentionLimit ?? base.automod.maxMentionsPerMessage;
-  base.automod.capsThreshold = source.automod?.capsFilter?.threshold ?? base.automod.capsThreshold;
-  base.automod.action = source.automod?.action ?? actionFromPunishment(source.antispam?.punishment, source.antispam?.muteDurationMs) ?? base.automod.action;
-  base.automod.allowedDomains = Array.isArray(source.automod?.linkFilter?.whitelist)
-    ? source.automod.linkFilter.whitelist
-    : base.automod.allowedDomains;
-
-  base.logging.messageDelete = Boolean(source.logging?.events?.messageDelete);
-  base.logging.messageEdit = Boolean(source.logging?.events?.messageEdit);
-  base.logging.memberJoinLeave = Boolean(source.logging?.events?.memberJoin || source.logging?.events?.memberLeave);
-  base.logging.modActions = Boolean(source.logging?.events?.modAction);
-  base.logging.roleChanges = Boolean(source.logging?.events?.roleChange);
-  base.logging.voiceLogs = Boolean(source.logging?.events?.voiceUpdate);
-  base.logging.modLogChannel = source.logging?.channelId ?? base.logging.modLogChannel ?? '';
-
-  base.welcome.enabled = Boolean(source.modules?.welcome);
-  base.welcome.channel = source.welcome?.channelId ?? '';
-  base.welcome.message = source.welcome?.message ?? base.welcome.message;
-  base.welcome.dmEnabled = Boolean(source.welcome?.dmEnabled);
-  base.welcome.dmMessage = source.welcome?.dmMessage ?? base.welcome.dmMessage;
-  base.welcome.farewellEnabled = Boolean(source.welcome?.farewellChannelId);
-  base.welcome.farewellChannel = source.welcome?.farewellChannelId ?? '';
-  base.welcome.farewellMessage = source.welcome?.farewellMessage ?? base.welcome.farewellMessage;
-
-  base.verification.enabled = Boolean(source.modules?.verification);
-  base.verification.type = source.verification?.type ?? base.verification.type;
-  base.verification.channel = source.verification?.channelId ?? '';
-  base.verification.dmFallback = source.verification?.dmFallback ?? base.verification.dmFallback;
-  base.verification.maxAttempts = source.verification?.maxAttempts ?? base.verification.maxAttempts;
-  base.verification.onFail = source.verification?.onFail ?? base.verification.onFail;
-  base.verification.difficulty = source.verification?.difficulty ?? base.verification.difficulty;
-  base.verification.expireMinutes = source.verification?.expireMinutes
-    ?? secondsToMinutes(source.verification?.timeout)
-    ?? base.verification.expireMinutes;
-
-  base.tickets.enabled = Boolean(source.modules?.tickets);
-  base.tickets.panelChannel = source.tickets?.channelId ?? '';
-  base.tickets.logChannel = source.tickets?.logChannelId ?? '';
-  base.tickets.maxPerUser = source.tickets?.maxOpenPerUser ?? base.tickets.maxPerUser;
-  base.tickets.transcripts = source.tickets?.transcripts ?? base.tickets.transcripts;
-
-  base.leveling.enabled = Boolean(source.modules?.leveling);
-  base.leveling.levelUpChannel = source.leveling?.channelId ?? '';
-  base.leveling.roleRewards = Array.isArray(source.leveling?.roleRewards) ? source.leveling.roleRewards : base.leveling.roleRewards;
-
-  base.giveaways.managerRole = source.giveaway?.managerRoleId ?? '';
-  base.polls.managerRole = source.poll?.managerRoleId ?? '';
-
-  return base;
-}
-
-function botConfigFromDashboardConfig(dashboardConfig, currentBotConfig, guildId) {
-  const baseBot = mergeDeep(botDefaultConfig(guildId), currentBotConfig ?? {});
-  const dashboard = mergeDeep(dashboardDefaults(guildId), dashboardConfig ?? {});
-
-  const unifiedLogChannel = emptyToNull(
-    dashboard.logging.modLogChannel ||
-    dashboard.moderation.modLogChannel ||
-    baseBot.logging?.channelId
-  );
-
-  const modulesAutomod = Boolean(dashboard.automod.enabled);
-
-  const next = mergeDeep(baseBot, {
-    guildId,
-    system: dashboard.system,
-    dashboard: {
-      ui: dashboard,
-    },
-    modules: {
-      ...baseBot.modules,
-      logging: hasEnabledLogging(dashboard.logging),
-      verification: Boolean(dashboard.verification.enabled),
-      leveling: Boolean(dashboard.leveling.enabled),
-      giveaways: true,
-      polls: true,
-      welcome: Boolean(dashboard.welcome.enabled || dashboard.welcome.farewellEnabled),
-      automod: modulesAutomod,
-      antispam: modulesAutomod,
-      tickets: Boolean(dashboard.tickets.enabled),
-    },
-    logging: {
-      ...baseBot.logging,
-      channelId: unifiedLogChannel,
-      events: {
-        ...baseBot.logging.events,
-        messageDelete: Boolean(dashboard.logging.messageDelete),
-        messageEdit: Boolean(dashboard.logging.messageEdit),
-        memberJoin: Boolean(dashboard.logging.memberJoinLeave),
-        memberLeave: Boolean(dashboard.logging.memberJoinLeave),
-        roleChange: Boolean(dashboard.logging.roleChanges),
-        modAction: Boolean(dashboard.logging.modActions),
-        voiceUpdate: Boolean(dashboard.logging.voiceLogs),
-      },
-    },
-    verification: {
-      ...baseBot.verification,
-      channelId: emptyToNull(dashboard.verification.channel),
-      type: dashboard.verification.type === 'button' ? 'math' : dashboard.verification.type,
-      timeout: minutesToSeconds(dashboard.verification.expireMinutes, baseBot.verification.timeout),
-      maxAttempts: Number(dashboard.verification.maxAttempts ?? baseBot.verification.maxAttempts ?? 3),
-      dmFallback: Boolean(dashboard.verification.dmFallback),
-      onFail: dashboard.verification.onFail,
-      difficulty: dashboard.verification.difficulty,
-      expireMinutes: Number(dashboard.verification.expireMinutes ?? 10),
-    },
-    welcome: {
-      ...baseBot.welcome,
-      channelId: emptyToNull(dashboard.welcome.channel),
-      message: emptyToNull(dashboard.welcome.message),
-      dmEnabled: Boolean(dashboard.welcome.dmEnabled),
-      dmMessage: emptyToNull(dashboard.welcome.dmMessage),
-      farewellChannelId: emptyToNull(dashboard.welcome.farewellChannel),
-      farewellMessage: emptyToNull(dashboard.welcome.farewellMessage),
-    },
-    automod: {
-      ...baseBot.automod,
-      action: dashboard.automod.action,
-      inviteFilter: {
-        ...baseBot.automod.inviteFilter,
-        enabled: Boolean(dashboard.automod.antiInvite),
-      },
-      linkFilter: {
-        ...baseBot.automod.linkFilter,
-        enabled: Boolean(dashboard.automod.antiLinks),
-        whitelist: toArray(dashboard.automod.allowedDomains),
-      },
-      capsFilter: {
-        ...baseBot.automod.capsFilter,
-        enabled: Boolean(dashboard.automod.antiCaps),
-        threshold: Number(dashboard.automod.capsThreshold ?? 70),
-      },
-      zalgoFilter: {
-        ...baseBot.automod.zalgoFilter,
-        enabled: Boolean(dashboard.automod.antiZalgo),
-      },
-    },
-    antispam: {
-      ...baseBot.antispam,
-      enabled: modulesAutomod,
-      msgLimit: Number(dashboard.automod.maxMessagesPerFive ?? baseBot.antispam.msgLimit ?? 6),
-      mentionLimit: Number(dashboard.automod.maxMentionsPerMessage ?? baseBot.antispam.mentionLimit ?? 5),
-      mentionSpamEnabled: Boolean(dashboard.automod.antiMentionSpam),
-      raidJoinEnabled: Boolean(dashboard.automod.antiRaid),
-      punishment: punishmentFromAction(dashboard.automod.action),
-      muteDurationMs: muteDurationFromAction(dashboard.automod.action),
-    },
-    tickets: {
-      ...baseBot.tickets,
-      channelId: emptyToNull(dashboard.tickets.panelChannel),
-      logChannelId: emptyToNull(dashboard.tickets.logChannel),
-      maxOpenPerUser: Number(dashboard.tickets.maxPerUser ?? baseBot.tickets.maxOpenPerUser ?? 1),
-      transcripts: Boolean(dashboard.tickets.transcripts),
-    },
-    giveaway: {
-      ...baseBot.giveaway,
-      managerRoleId: emptyToNull(dashboard.giveaways.managerRole),
-      channelId: emptyToNull(dashboard.giveaways.channel),
-    },
-    poll: {
-      ...baseBot.poll,
-      managerRoleId: emptyToNull(dashboard.polls.managerRole),
-    },
-    moderation: {
-      ...baseBot.moderation,
-      warnThresholds: {
-        [Number(dashboard.moderation.warnThresholdTimeout ?? 3)]: 'mute',
-        [Number(dashboard.moderation.warnThresholdKick ?? 5)]: 'kick',
-        [Number(dashboard.moderation.warnThresholdBan ?? 7)]: 'ban',
-      },
-    },
-  });
-
-  return next;
-}
-
-function dashboardDefaults(guildId) {
-  return {
-    guildId,
+    updatedAt: new Date(),
     system: {
       maintenanceMode: false,
       statusApi: true,
       autoRespawn: true,
     },
     moderation: {
+      enabled: true,
       warnThresholdTimeout: 3,
       warnThresholdKick: 5,
-      warnThresholdBan: 7,
+      warnThresholdBan: 8,
       timeoutDuration: 30,
       warnExpiry: 30,
       modLogChannel: '',
@@ -424,25 +189,26 @@ function dashboardDefaults(guildId) {
       maxPurge: 100,
     },
     automod: {
-      enabled: false,
-      antiInvite: false,
-      antiLinks: false,
-      antiCaps: false,
-      antiZalgo: false,
+      enabled: true,
+      antiInvite: true,
+      antiLinks: true,
+      antiCaps: true,
+      antiZalgo: true,
       antiMentionSpam: true,
       antiRaid: true,
-      maxMessagesPerFive: 6,
+      maxMessagesPerFive: 5,
       maxMentionsPerMessage: 5,
       capsThreshold: 70,
       action: 'delete_warn',
-      allowedDomains: [],
+      whitelistRoles: [],
+      allowedDomains: ['youtube.com', 'twitch.tv', 'twitter.com', 'github.com'],
     },
     logging: {
       messageDelete: true,
       messageEdit: true,
       memberJoinLeave: true,
       modActions: true,
-      roleChanges: true,
+      roleChanges: false,
       voiceLogs: false,
       modLogChannel: '',
       messageLogChannel: '',
@@ -450,20 +216,20 @@ function dashboardDefaults(guildId) {
       serverLogChannel: '',
     },
     welcome: {
-      enabled: false,
+      enabled: true,
       channel: '',
-      message: '',
-      dmEnabled: false,
-      dmMessage: '',
-      farewellEnabled: false,
+      message: 'Willkommen auf {server}, {user}!',
+      dmEnabled: true,
+      dmMessage: 'Hey {user}! Schön, dass du {server} beigetreten bist.',
+      farewellEnabled: true,
       farewellChannel: '',
-      farewellMessage: '',
+      farewellMessage: '{user} hat uns verlassen.',
       autoRolesUser: [],
       autoRolesBot: [],
     },
     verification: {
-      enabled: false,
-      type: 'math',
+      enabled: true,
+      type: 'image',
       channel: '',
       roleAfter: [],
       roleRemove: [],
@@ -474,11 +240,11 @@ function dashboardDefaults(guildId) {
       expireMinutes: 10,
     },
     tickets: {
-      enabled: false,
+      enabled: true,
       panelChannel: '',
       logChannel: '',
       supportRoles: [],
-      maxPerUser: 1,
+      maxPerUser: 2,
       transcripts: true,
     },
     leveling: {
@@ -509,92 +275,64 @@ function dashboardDefaults(guildId) {
   };
 }
 
-function mergeDeep(target, source) {
-  const output = Array.isArray(target) ? [...target] : { ...(target ?? {}) };
+function signJwt(header, payload, secret) {
+  const encodedHeader = base64url(JSON.stringify(header));
+  const encodedPayload = base64url(JSON.stringify(payload));
+  const unsigned = `${encodedHeader}.${encodedPayload}`;
+  const signature = base64url(crypto.createHmac('sha256', secret).update(unsigned).digest());
+  return `${unsigned}.${signature}`;
+}
 
-  for (const [key, value] of Object.entries(source ?? {})) {
-    if (
-      value &&
-      typeof value === 'object' &&
-      !Array.isArray(value) &&
-      output[key] &&
-      typeof output[key] === 'object' &&
-      !Array.isArray(output[key])
-    ) {
-      output[key] = mergeDeep(output[key], value);
-    } else {
-      output[key] = value;
-    }
+function verifyJwt(token, secret) {
+  const parts = String(token).split('.');
+  if (parts.length !== 3) {
+    const error = new Error('Invalid token');
+    error.name = 'JsonWebTokenError';
+    throw error;
   }
 
-  return output;
-}
+  const [encodedHeader, encodedPayload, signature] = parts;
+  const unsigned = `${encodedHeader}.${encodedPayload}`;
+  const expected = base64url(crypto.createHmac('sha256', secret).update(unsigned).digest());
 
-function emptyToNull(value) {
-  return value === '' || value == null ? null : value;
-}
-
-function toArray(value) {
-  return Array.isArray(value) ? value.filter(Boolean) : [];
-}
-
-function hasEnabledLogging(logging) {
-  return Boolean(
-    logging.messageDelete ||
-    logging.messageEdit ||
-    logging.memberJoinLeave ||
-    logging.modActions ||
-    logging.roleChanges ||
-    logging.voiceLogs
-  );
-}
-
-function punishmentFromAction(action) {
-  switch (action) {
-    case 'delete_timeout5':
-    case 'delete_timeout30':
-      return 'mute';
-    case 'delete_warn':
-    case 'delete':
-    default:
-      return 'warn';
+  const actualBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (
+    actualBuffer.length !== expectedBuffer.length ||
+    !crypto.timingSafeEqual(actualBuffer, expectedBuffer)
+  ) {
+    const error = new Error('Invalid signature');
+    error.name = 'JsonWebTokenError';
+    throw error;
   }
-}
 
-function muteDurationFromAction(action) {
-  switch (action) {
-    case 'delete_timeout5':
-      return 5 * 60_000;
-    case 'delete_timeout30':
-      return 30 * 60_000;
-    default:
-      return 10 * 60_000;
+  let payload;
+  try {
+    payload = JSON.parse(fromBase64url(encodedPayload));
+  } catch {
+    const error = new Error('Invalid payload');
+    error.name = 'JsonWebTokenError';
+    throw error;
   }
-}
 
-function actionFromPunishment(punishment, muteDurationMs) {
-  if (punishment === 'mute' || punishment === 'timeout') {
-    return muteDurationMs >= 30 * 60_000 ? 'delete_timeout30' : 'delete_timeout5';
+  if (payload.exp && Math.floor(Date.now() / 1000) >= payload.exp) {
+    const error = new Error('Token expired');
+    error.name = 'TokenExpiredError';
+    throw error;
   }
-  if (punishment === 'warn') return 'delete_warn';
-  return 'delete';
+
+  return payload;
 }
 
-function findWarnThreshold(thresholds, action, fallback) {
-  const match = Object.entries(thresholds ?? {}).find(([, value]) => value === action);
-  return match ? Number(match[0]) : fallback;
+function base64url(value) {
+  const buffer = Buffer.isBuffer(value) ? value : Buffer.from(String(value), 'utf8');
+  return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
-function minutesToSeconds(minutes, fallbackSeconds) {
-  const parsed = Number(minutes);
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallbackSeconds ?? 600;
-  return parsed * 60;
-}
-
-function secondsToMinutes(seconds) {
-  const parsed = Number(seconds);
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
-  return Math.max(1, Math.round(parsed / 60));
+function fromBase64url(value) {
+  const normalized = String(value).replace(/-/g, '+').replace(/_/g, '/');
+  const padding = normalized.length % 4 === 0 ? '' : '='.repeat(4 - (normalized.length % 4));
+  return Buffer.from(normalized + padding, 'base64').toString('utf8');
 }
 
 module.exports = {
@@ -604,10 +342,9 @@ module.exports = {
   ok,
   err,
   options,
+  preflight,
   discordFetch,
   botFetch,
   getManagedGuildAccess,
   defaultConfig,
-  dashboardConfigFromBotConfig,
-  botConfigFromDashboardConfig,
 };

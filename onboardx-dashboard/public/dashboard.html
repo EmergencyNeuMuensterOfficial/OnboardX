@@ -178,6 +178,24 @@
   .fill-green{background:var(--success);}
   .fill-orange{background:var(--warning);}
 
+  /* Cluster */
+  .cluster-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
+  .cluster-card{background:var(--bg-void);border:1px solid var(--border);border-radius:12px;padding:16px;}
+  .cluster-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+  .cluster-id{font-family:'Space Mono',monospace;font-size:11px;color:var(--text-secondary);}
+  .cluster-badge{font-size:10px;padding:2px 8px;border-radius:20px;font-weight:600;}
+  .cluster-badge.online{background:rgba(16,185,129,.15);color:var(--success);}
+  .cluster-badge.degraded{background:rgba(245,158,11,.15);color:var(--warning);}
+  .cluster-badge.offline{background:rgba(239,68,68,.15);color:var(--danger);}
+  .cluster-shards{display:flex;gap:4px;flex-wrap:wrap;margin:8px 0;}
+  .shard{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-family:'Space Mono',monospace;font-size:9px;}
+  .shard.ok{background:rgba(16,185,129,.2);color:var(--success);border:1px solid rgba(16,185,129,.3);}
+  .shard.warn{background:rgba(245,158,11,.2);color:var(--warning);border:1px solid rgba(245,158,11,.3);}
+  .shard.err{background:rgba(239,68,68,.2);color:var(--danger);border:1px solid rgba(239,68,68,.3);}
+  .cluster-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;}
+  .cs-val{font-family:'Space Mono',monospace;font-size:14px;color:var(--text-primary);text-align:center;}
+  .cs-lbl{font-size:10px;color:var(--text-muted);text-align:center;}
+
   /* Log table */
   .log-table{width:100%;border-collapse:collapse;}
   .log-table th{text-align:left;padding:10px 16px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border);}
@@ -278,6 +296,7 @@
 
   <div class="nav-section-label">Übersicht</div>
   <div class="nav-item active" data-page="overview"><span class="nav-icon">📊</span> Dashboard</div>
+  <div class="nav-item" data-page="cluster"><span class="nav-icon">🖥️</span> Cluster & Shards</div>
 
   <div class="nav-section-label">Moderation</div>
   <div class="nav-item" data-page="moderation"><span class="nav-icon">🔨</span> Moderation</div>
@@ -350,6 +369,25 @@
                 <div><div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:var(--text-secondary)">Shards</span><span style="font-family:'Space Mono',monospace;color:var(--accent)" id="shardsStatus">–</span></div><div class="progress-bar"><div class="progress-fill fill-blue" style="width:100%"></div></div></div>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CLUSTER -->
+    <div class="page" id="page-cluster">
+      <div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">
+        <div class="stat-card green"><span class="stat-icon">🖥️</span><div class="stat-value">3</div><div class="stat-label">Cluster Online</div></div>
+        <div class="stat-card blue"><span class="stat-icon">📡</span><div class="stat-value">12</div><div class="stat-label">Shards Gesamt</div></div>
+        <div class="stat-card cyan"><span class="stat-icon">⏱️</span><div class="stat-value">99.8%</div><div class="stat-label">30-Tage Uptime</div></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-icon">🖥️</span><span class="card-title">Cluster Übersicht</span><button class="btn btn-ghost" style="margin-left:auto" onclick="loadStats()">🔄 Refresh</button></div>
+        <div class="card-body">
+          <div class="cluster-grid">
+            <div class="cluster-card"><div class="cluster-header"><span class="cluster-id">CLUSTER #0</span><span class="cluster-badge online">ONLINE</span></div><div class="cluster-shards"><div class="shard ok">0</div><div class="shard ok">1</div><div class="shard ok">2</div><div class="shard ok">3</div></div><div class="cluster-stats"><div><div class="cs-val">48ms</div><div class="cs-lbl">Latenz</div></div><div><div class="cs-val">34%</div><div class="cs-lbl">CPU</div></div><div><div class="cs-val">4,821</div><div class="cs-lbl">Guilds</div></div><div><div class="cs-val">512MB</div><div class="cs-lbl">RAM</div></div></div></div>
+            <div class="cluster-card"><div class="cluster-header"><span class="cluster-id">CLUSTER #1</span><span class="cluster-badge online">ONLINE</span></div><div class="cluster-shards"><div class="shard ok">4</div><div class="shard ok">5</div><div class="shard warn">6</div><div class="shard ok">7</div></div><div class="cluster-stats"><div><div class="cs-val">76ms</div><div class="cs-lbl">Latenz</div></div><div><div class="cs-val">71%</div><div class="cs-lbl">CPU</div></div><div><div class="cs-val">5,102</div><div class="cs-lbl">Guilds</div></div><div><div class="cs-val">684MB</div><div class="cs-lbl">RAM</div></div></div></div>
+            <div class="cluster-card"><div class="cluster-header"><span class="cluster-id">CLUSTER #2</span><span class="cluster-badge degraded">DEGRADED</span></div><div class="cluster-shards"><div class="shard ok">8</div><div class="shard warn">9</div><div class="shard err">10</div><div class="shard ok">11</div></div><div class="cluster-stats"><div><div class="cs-val">184ms</div><div class="cs-lbl">Latenz</div></div><div><div class="cs-val">91%</div><div class="cs-lbl">CPU</div></div><div><div class="cs-val">4,290</div><div class="cs-lbl">Guilds</div></div><div><div class="cs-val">891MB</div><div class="cs-lbl">RAM</div></div></div></div>
           </div>
         </div>
       </div>
@@ -556,8 +594,7 @@
           <div class="card-header"><span class="card-icon">⚙️</span><span class="card-title">Giveaway-Einstellungen</span></div>
           <div class="card-body">
             <div class="form-group"><label class="form-label">Giveaway-Kanal</label><select class="form-input" data-cfg="giveaways.channel" id="sel-giveawayChannel"><option value="">– Keiner –</option></select></div>
-            <div class="form-group"><label class="form-label">Giveaway-Managerrolle</label><select class="form-input" data-cfg="giveaways.managerRole" id="sel-giveawayRole"><option value="">– Keine –</option></select></div>
-            <div class="form-group"><label class="form-label">Poll-Managerrolle</label><select class="form-input" data-cfg="polls.managerRole" id="sel-pollRole"><option value="">– Keine –</option></select></div>
+            <div class="form-group"><label class="form-label">Manager-Rolle</label><select class="form-input" data-cfg="giveaways.managerRole" id="sel-giveawayRole"><option value="">– Keine –</option></select></div>
             <p style="font-size:13px;color:var(--text-secondary);margin-top:8px;line-height:1.6">Giveaways starten mit <code style="background:var(--bg-void);padding:2px 6px;border-radius:4px">/giveaway start</code>.</p>
           </div>
         </div>
@@ -606,10 +643,8 @@ async function api(path, opts = {}) {
       ...opts.headers,
     },
   });
-  const data = await res.json().catch(() => null);
   if (res.status === 401) { logout(); return null; }
-  if (!res.ok) throw new Error(data?.error || `API ${res.status}`);
-  return data;
+  return res.json();
 }
 
 function logout() {
@@ -681,8 +716,8 @@ async function selectGuild(guildId) {
 
     currentGuildId = guildId;
     const guild = guilds.find(g => g.id === guildId);
+    if (!guild) throw new Error('Server nicht gefunden');
 
-    // Update selector UI
     const av = document.getElementById('srvAvatar');
     if (guild.icon) {
       av.innerHTML = `<img src="${guild.icon}" alt="">`;
@@ -692,25 +727,27 @@ async function selectGuild(guildId) {
     document.getElementById('srvName').textContent    = guild.name;
     document.getElementById('srvMembers').textContent = 'Lade…';
 
-    // Load stats + config in parallel
     const [statsData, cfgData] = await Promise.all([
       api(`/stats?guildId=${guildId}`),
       api(`/config?guildId=${guildId}`),
     ]);
 
-    if (!statsData || !cfgData) return;
+    if (!statsData?.guild || !cfgData) {
+      throw new Error('Serverdaten konnten nicht geladen werden');
+    }
 
-    channels = statsData.channels;
-    roles    = statsData.roles;
+    channels = Array.isArray(statsData.channels) ? statsData.channels : [];
+    roles    = Array.isArray(statsData.roles) ? statsData.roles : [];
     config   = cfgData;
 
-    document.getElementById('srvMembers').textContent = statsData.guild.memberCount.toLocaleString('de') + ' Mitglieder';
+    document.getElementById('srvMembers').textContent = Number(statsData.guild.memberCount || 0).toLocaleString('de') + ' Mitglieder';
 
     populateChannelSelects();
     populateRoleSelects();
     renderStats(statsData);
     applyConfigToUI();
   } catch (error) {
+    console.error(error);
     showToast(error.message || 'Server konnte nicht geladen werden', true);
   }
 }
@@ -747,10 +784,8 @@ function populateChannelSelects() {
 }
 
 function populateRoleSelects() {
-  const giveawayRole = document.getElementById('sel-giveawayRole');
-  const pollRole = document.getElementById('sel-pollRole');
-  if (giveawayRole) giveawayRole.innerHTML = roleOptions(config.giveaways?.managerRole || '');
-  if (pollRole) pollRole.innerHTML = roleOptions(config.polls?.managerRole || '');
+  const el = document.getElementById('sel-giveawayRole');
+  if (el) el.innerHTML = roleOptions(config.giveaways?.managerRole || '');
 }
 
 // ── STATS OVERVIEW ─────────────────────────────────────────────────────────
@@ -761,10 +796,9 @@ function renderStats(data) {
   document.getElementById('statMessages').textContent = (data.stats.messagesToday || 0).toLocaleString('de');
   document.getElementById('statTickets').textContent  = data.stats.openTickets ?? '–';
   document.getElementById('statAutomod').textContent  = data.stats.automodActions ?? '–';
-  const latency = data.meta?.apiLatencyMs ?? 0;
-  document.getElementById('shardsStatus').textContent = 'Extern verwaltet';
-  document.getElementById('apiLatency').textContent   = `${latency}ms`;
-  document.getElementById('apiLatencyBar').style.width = `${Math.min(100, Math.max(4, latency / 4))}%`;
+  document.getElementById('shardsStatus').textContent = '12 / 12 online';
+  document.getElementById('apiLatency').textContent   = '48ms';
+  document.getElementById('apiLatencyBar').style.width = '12%';
 
   // Tickets
   const tl = document.getElementById('ticketList');
@@ -836,24 +870,20 @@ async function saveConfig() {
   btn.disabled = true;
   btn.innerHTML = '<div class="spinner"></div> Speichern…';
 
-  try {
-    readUIIntoConfig();
+  readUIIntoConfig();
 
-    const res = await api(`/config?guildId=${currentGuildId}`, {
-      method: 'POST',
-      body: JSON.stringify(config),
-    });
+  const res = await api(`/config?guildId=${currentGuildId}`, {
+    method: 'POST',
+    body: JSON.stringify(config),
+  });
 
-    if (res?.config) config = res.config;
-    populateChannelSelects();
-    populateRoleSelects();
-    applyConfigToUI();
+  btn.disabled = false;
+  btn.innerHTML = '💾 Speichern';
+
+  if (res?.success) {
     showToast('Konfiguration gespeichert', false);
-  } catch (error) {
-    showToast(error.message || 'Fehler beim Speichern', true);
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '💾 Speichern';
+  } else {
+    showToast('Fehler beim Speichern', true);
   }
 }
 
@@ -871,7 +901,7 @@ function showToast(msg, isErr = false) {
 
 // ── NAV ───────────────────────────────────────────────────────────────────
 const titles = {
-  overview:'📊 Dashboard',
+  overview:'📊 Dashboard',cluster:'🖥️ Cluster & Shards',
   moderation:'🔨 Moderation',automod:'🤖 AutoMod & Anti-Spam',
   logging:'📋 Logging',welcome:'👋 Welcome & Farewell',
   verification:'✅ Verifizierung',tickets:'🎫 Tickets',

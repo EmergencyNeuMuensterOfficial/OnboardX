@@ -2,6 +2,13 @@
   publish = "public"
   functions = "netlify/functions"
 
+# CRITICAL: ohne esbuild kann require('./_utils') nicht gefunden werden
+[functions]
+  node_bundler = "esbuild"
+
+[build.environment]
+  NODE_VERSION = "18"
+
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
@@ -22,4 +29,4 @@
   [headers.values]
     Access-Control-Allow-Origin = "*"
     Access-Control-Allow-Headers = "Authorization, Content-Type"
-    Access-Control-Allow-Methods = "GET, POST, PATCH, OPTIONS"
+    Access-Control-Allow-Methods = "GET, POST, DELETE, OPTIONS"

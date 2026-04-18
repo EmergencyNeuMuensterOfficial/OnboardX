@@ -127,6 +127,7 @@ module.exports = {
       const endsAt     = poll.endsAt?.toMillis ? poll.endsAt.toMillis() : poll.endsAt;
 
       const resultEmbed = embed.poll({ question: poll.question, options: poll.options, anonymous: poll.anonymous, endsAt, totalVotes });
+      resultEmbed.setFooter({ text: `Poll ID: ${poll.id}` });
       return interaction.reply({ embeds: [resultEmbed], flags: MessageFlags.Ephemeral });
     }
   },

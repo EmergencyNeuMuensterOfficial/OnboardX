@@ -1,7 +1,6 @@
 {
   "name": "onboardx-dashboard",
   "version": "2.0.0",
-  "description": "OnboardX V2 Discord Bot Dashboard",
   "engines": { "node": ">=18.0.0" },
   "dependencies": {
     "jsonwebtoken": "^9.0.2",

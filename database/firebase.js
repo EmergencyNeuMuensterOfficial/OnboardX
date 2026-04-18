@@ -176,7 +176,7 @@ async function setDoc(ref, data, merge = true) {
     case 'guild': {
       const collection = getCollection(COLLECTIONS.guildConfigs);
       const current = merge ? await collection.findOne({ _id: ref.guildId }) : null;
-      const next = merge ? deepMerge(stripMeta(current), data) : { ...data };
+      const next = buildStoredDocument(current, data, merge);
       await collection.updateOne(
         { _id: ref.guildId },
         {
@@ -209,7 +209,7 @@ async function setDoc(ref, data, merge = true) {
     case 'system': {
       const collection = getCollection(COLLECTIONS.systemDocs);
       const current = merge ? await collection.findOne({ _id: ref.docId }) : null;
-      const next = merge ? deepMerge(stripMeta(current), data) : { ...data };
+      const next = buildStoredDocument(current, data, merge);
       await collection.updateOne(
         { _id: ref.docId },
         {
@@ -223,7 +223,7 @@ async function setDoc(ref, data, merge = true) {
     case 'cluster': {
       const collection = getCollection(COLLECTIONS.clusterStatuses);
       const current = merge ? await collection.findOne({ _id: ref.clusterId }) : null;
-      const next = merge ? deepMerge(stripMeta(current), data) : { ...data };
+      const next = buildStoredDocument(current, data, merge);
       await collection.updateOne(
         { _id: ref.clusterId },
         {
@@ -237,7 +237,7 @@ async function setDoc(ref, data, merge = true) {
     case 'shard': {
       const collection = getCollection(COLLECTIONS.shardStatuses);
       const current = merge ? await collection.findOne({ _id: ref.shardId }) : null;
-      const next = merge ? deepMerge(stripMeta(current), data) : { ...data };
+      const next = buildStoredDocument(current, data, merge);
       await collection.updateOne(
         { _id: ref.shardId },
         {
@@ -371,6 +371,12 @@ function stripMeta(doc) {
   delete copy.createdAt;
   delete copy.updatedAt;
   return copy;
+}
+
+function buildStoredDocument(current, data, merge) {
+  const incoming = stripMeta(data);
+  if (!merge) return incoming;
+  return stripMeta(deepMerge(stripMeta(current), incoming));
 }
 
 function sanitizeDocument(value) {

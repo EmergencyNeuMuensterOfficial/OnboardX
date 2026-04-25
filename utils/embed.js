@@ -102,8 +102,11 @@ function levelUp(member, level, roleReward = null) {
 /**
  * Giveaway embed.
  */
-function giveaway({ prize, winners, endsAt, hostedBy, entries = 0, ended = false }) {
-  const embed = base({ color: ended ? 0x95a5a6 : config.premiumColor })
+function giveaway({ prize, winners, endsAt, hostedBy, entries = 0, ended = false, giveawayId = null }) {
+  const embed = base({
+    color: ended ? 0x95a5a6 : config.premiumColor,
+    footer: giveawayId ? `Giveaway ID: ${giveawayId}` : config.embedFooter,
+  })
     .setTitle(ended ? `🎁 Giveaway Ended — ${prize}` : `🎁 Giveaway — ${prize}`)
     .addFields(
       { name: 'Winners',  value: `\`${winners}\``,                inline: true },

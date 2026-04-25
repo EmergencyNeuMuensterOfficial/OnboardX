@@ -35,7 +35,6 @@ module.exports = {
     .setName('giveaway')
     .setDescription('Manage giveaways.')
 
-    // ── Start ──────────────────────────────────────────────────────────────
     .addSubcommand(sub => sub
       .setName('start')
       .setDescription('Start a new giveaway.')
@@ -45,14 +44,12 @@ module.exports = {
       .addChannelOption(o => o.setName('channel').setDescription('Channel (default: current)'))
     )
 
-    // ── End ────────────────────────────────────────────────────────────────
     .addSubcommand(sub => sub
       .setName('end')
       .setDescription('End a giveaway early.')
-      .addStringOption(o => o.setName('id').setDescription('Giveaway Firestore document ID').setRequired(true))
+      .addStringOption(o => o.setName('id').setDescription('Giveaway document ID').setRequired(true))
     )
 
-    // ── Reroll ─────────────────────────────────────────────────────────────
     .addSubcommand(sub => sub
       .setName('reroll')
       .setDescription('Reroll winners for an ended giveaway.')
@@ -60,28 +57,23 @@ module.exports = {
       .addIntegerOption(o => o.setName('count').setDescription('Number of new winners').setMinValue(1).setMaxValue(10))
     )
 
-    // ── List ───────────────────────────────────────────────────────────────
     .addSubcommand(sub => sub
       .setName('list')
-      .setDescription('List active giveaways in this server.')
+      .setDescription('List giveaways in this server, including ended ones.')
     ),
 
   async execute(interaction, client, guildCfg) {
     const sub = interaction.options.getSubcommand();
 
-    // Mod check for management commands
     if (sub === 'start') {
       if (!canManageGiveaways(interaction, guildCfg)) {
         if (!await assertPermission(interaction, 'mod')) return;
       }
-    }
 
-    // ── Start ──────────────────────────────────────────────────────────────
-    if (sub === 'start') {
-      const prize      = interaction.options.getString('prize');
-      const durStr     = interaction.options.getString('duration');
+      const prize       = interaction.options.getString('prize');
+      const durStr      = interaction.options.getString('duration');
       const winnerCount = interaction.options.getInteger('winners') ?? 1;
-      const targetCh   = interaction.options.getChannel('channel') ?? interaction.channel;
+      const targetCh    = interaction.options.getChannel('channel') ?? interaction.channel;
 
       const durationMs = time.parseDuration(durStr);
       if (!durationMs) {
@@ -93,12 +85,11 @@ module.exports = {
 
       if (durationMs < cfg.giveaway.minDuration || durationMs > cfg.giveaway.maxDuration) {
         return interaction.reply({
-          embeds: [embed.error('Invalid Duration', `Duration must be between 1 minute and 30 days.`)],
+          embeds: [embed.error('Invalid Duration', 'Duration must be between 1 minute and 30 days.')],
           flags: MessageFlags.Ephemeral,
         });
       }
 
-      // Premium winner limit check
       const maxWinners = guildCfg?.premium ? premCfg.giveaway.maxWinners : 5;
       if (winnerCount > maxWinners) {
         return interaction.reply({
@@ -107,10 +98,9 @@ module.exports = {
         });
       }
 
-      // Premium concurrent giveaway check
-      const active      = await Giveaway.getActive();
+      const active = await Giveaway.getActive();
       const guildActive = active.filter(g => g.guildId === interaction.guild.id);
-      const maxActive   = guildCfg?.premium ? premCfg.giveaway.maxConcurrent : 3;
+      const maxActive = guildCfg?.premium ? premCfg.giveaway.maxConcurrent : 3;
       if (guildActive.length >= maxActive) {
         return interaction.reply({
           embeds: [embed.warn('Limit Reached', `Maximum ${maxActive} concurrent giveaways.`)],
@@ -121,22 +111,21 @@ module.exports = {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
       const giveaway = await GiveawayService.start(client, {
-        channel:    targetCh,
+        channel: targetCh,
         prize,
         durationMs,
-        winners:    winnerCount,
-        hostedBy:   interaction.user.id,
+        winners: winnerCount,
+        hostedBy: interaction.user.id,
       });
 
       return interaction.editReply({
         embeds: [embed.success(
-          '🎉 Giveaway Started!',
+          'Giveaway Started!',
           `Prize: **${prize}**\nEnds: ${time.relative(Date.now() + durationMs)}\nID: \`${giveaway.id}\``
         )],
       });
     }
 
-    // ── End ────────────────────────────────────────────────────────────────
     if (sub === 'end') {
       const id = interaction.options.getString('id');
       const giveaway = await Giveaway.get(id);
@@ -157,12 +146,13 @@ module.exports = {
 
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       await GiveawayService.end(client, id);
-      return interaction.editReply({ embeds: [embed.success('Ended', 'Giveaway ended and winners selected.')] });
+      return interaction.editReply({
+        embeds: [embed.success('Ended', `Giveaway \`${id}\` ended and winners selected.`)],
+      });
     }
 
-    // ── Reroll ─────────────────────────────────────────────────────────────
     if (sub === 'reroll') {
-      const id    = interaction.options.getString('id');
+      const id = interaction.options.getString('id');
       const count = interaction.options.getInteger('count') ?? 1;
       const giveaway = await Giveaway.get(id);
 
@@ -189,31 +179,31 @@ module.exports = {
         });
       }
 
-      const mentions = newWinners.map(id => `<@${id}>`).join(', ') || 'No eligible entries.';
+      const mentions = newWinners.map(winnerId => `<@${winnerId}>`).join(', ') || 'No eligible entries.';
       return interaction.editReply({
-        embeds: [embed.success('Rerolled!', `New winner(s): ${mentions}`)],
+        embeds: [embed.success('Rerolled!', `Giveaway \`${id}\`\nNew winner(s): ${mentions}`)],
       });
     }
 
-    // ── List ───────────────────────────────────────────────────────────────
     if (sub === 'list') {
-      const all    = await Giveaway.getActive();
-      const active = all.filter(g => g.guildId === interaction.guild.id);
+      const giveaways = await Giveaway.getByGuild(interaction.guild.id);
 
-      if (!active.length) {
+      if (!giveaways.length) {
         return interaction.reply({
-          embeds: [embed.info('No Active Giveaways', 'There are no running giveaways right now.')],
+          embeds: [embed.info('No Giveaways', 'There are no giveaways for this server yet.')],
           flags: MessageFlags.Ephemeral,
         });
       }
 
-      const lines = active.map(g => {
-        const endsAt = g.endsAt?.toMillis ? g.endsAt.toMillis() : g.endsAt;
-        return `• **${g.prize}** — ${time.relative(endsAt)} — \`${g.id}\``;
+      const lines = giveaways.map(giveaway => {
+        const endsAt = giveaway.endsAt?.toMillis ? giveaway.endsAt.toMillis() : giveaway.endsAt;
+        const status = giveaway.ended ? 'Ended' : 'Active';
+        const timing = giveaway.ended ? 'ended' : `ends ${time.relative(endsAt)}`;
+        return `ID: \`${giveaway.id}\` | **${status}** | **${giveaway.prize}** | ${timing}`;
       });
 
       return interaction.reply({
-        embeds: [embed.base().setTitle('🎉 Active Giveaways').setDescription(lines.join('\n'))],
+        embeds: [embed.base().setTitle('Giveaways').setDescription(lines.join('\n'))],
         flags: MessageFlags.Ephemeral,
       });
     }

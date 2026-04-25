@@ -49,6 +49,15 @@ class Giveaway {
     return docs.map(normalize);
   }
 
+  static async getByGuild(guildId, limit = 25) {
+    const docs = await col()
+      .find({ guildId })
+      .sort({ ended: 1, endsAt: -1, createdAt: -1 })
+      .limit(limit)
+      .toArray();
+    return docs.map(normalize);
+  }
+
   static async update(id, updates) {
     const current = await Giveaway.get(id);
     if (!current) return null;

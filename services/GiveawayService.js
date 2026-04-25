@@ -55,6 +55,19 @@ class GiveawayService {
       endsAt,
     });
 
+    await msg.edit({
+      embeds: [embed.giveaway({
+        prize,
+        winners,
+        endsAt,
+        hostedBy,
+        entries: 0,
+        ended: false,
+        giveawayId: giveaway.id,
+      })],
+      components: [row],
+    });
+
     // Schedule end timer
     GiveawayService._schedule(client, giveaway, durationMs);
 
@@ -95,6 +108,7 @@ class GiveawayService {
       hostedBy: updated.hostedBy,
       entries:  updated.entries.length,
       ended:    false,
+      giveawayId: updated.id,
     });
 
     const row = new ActionRowBuilder().addComponents(
@@ -139,6 +153,7 @@ class GiveawayService {
         hostedBy: giveaway.hostedBy,
         entries:  giveaway.entries.length,
         ended:    true,
+        giveawayId: giveaway.id,
       });
 
       // Disable enter button
@@ -163,7 +178,7 @@ class GiveawayService {
 
       const winEmbed = embed.success(
         '🎉 Giveaway Winners!',
-        `**Prize:** ${giveaway.prize}\n**Winner(s):** ${winMentions}`
+        `**Prize:** ${giveaway.prize}\n**ID:** \`${giveaway.id}\`\n**Winner(s):** ${winMentions}`
       );
       await channel.send({ embeds: [winEmbed] });
     } catch (err) {

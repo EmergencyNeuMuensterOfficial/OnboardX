@@ -9,7 +9,7 @@
 module.exports = {
   // ── Bot Meta ──────────────────────────────────────────────────────────────
   botName:    'OnboardX V2',
-  botVersion: '0.5.35b',
+  botVersion: '0.5.36a',
   botColor:   0x5865F2, // Discord Blurple
   errorColor: 0xED4245, // Red
   warnColor:  0xFEE75C, // Yellow
@@ -86,7 +86,7 @@ module.exports = {
   },
 
   // ── Embed Footer ──────────────────────────────────────────────────────────
-  embedFooter: 'OnboardX V2 • V0.5.25b',
+  embedFooter: 'OnboardX V2 • 0.5.36a',
 
   // ── Owners (bypass all cooldowns & checks) ────────────────────────────────
   owners: (process.env.BOT_OWNERS || '').split(',').filter(Boolean),

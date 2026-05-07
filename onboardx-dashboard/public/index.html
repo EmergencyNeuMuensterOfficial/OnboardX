@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- !! Deine Discord Client ID hier eintragen !! -->
-<meta name="discord-client-id" content="DEINE_CLIENT_ID_HIER">
+<meta name="discord-client-id" content="1489947414382116905">
 <title>OnboardX V2 — Login</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
@@ -98,7 +98,7 @@
 
 <script>
   // Read client ID from <meta> tag — edit it at the top of this file
-  const CLIENT_ID = 1489947414382116905;
+  const CLIENT_ID = document.querySelector('meta[name="discord-client-id"]')?.content?.trim();
 
   const btn    = document.getElementById('loginBtn');
   const banner = document.getElementById('errBanner');
@@ -119,7 +119,7 @@
 
     const REDIRECT  = encodeURIComponent(window.location.origin + '/callback');
     const SCOPES    = encodeURIComponent('identify guilds');
-    btn.href = `https://discord.com/api/oauth2/authorize?client_id=1489947414382116905&redirect_uri=${REDIRECT}&response_type=code&scope=${SCOPES}`;
+    btn.href = `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(CLIENT_ID)}&redirect_uri=${REDIRECT}&response_type=code&scope=${SCOPES}`;
   }
 </script>
 </body>

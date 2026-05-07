@@ -1,101 +1,149 @@
-# OnboardX V2 — Dashboard
+# OnboardX V2 Dashboard
 
-Discord Bot Dashboard für OnboardX V2. Läuft vollständig auf **Netlify** (Frontend + Serverless Functions + MongoDB).
+Web dashboard for configuring OnboardX V2 Discord servers. It runs on Netlify with static HTML pages, Netlify Functions, Discord OAuth, and the same MongoDB `guild_configs` collection used by the bot.
 
----
+## What Is Included
 
-## 🚀 Setup
+- `public/index.html` - Discord login page
+- `public/callback.html` - OAuth callback page
+- `public/dashboard.html` - server configuration UI
+- `netlify/functions/auth.js` - exchanges Discord OAuth code for a dashboard session
+- `netlify/functions/guilds.js` - lists servers the logged-in user can manage
+- `netlify/functions/stats.js` - loads guild info, channels, roles, and stored stats
+- `netlify/functions/config.js` - loads and saves server configuration
+- `netlify/functions/_configAdapter.js` - maps dashboard fields to bot config fields
+- `netlify/functions/_utils.js` - shared MongoDB, Discord API, CORS, and JWT helpers
 
-### 1. Repository auf Netlify deployen
+## Setup Tutorial
 
-1. Diesen Ordner auf GitHub pushen
-2. In Netlify: **Add new site → Import from Git**
-3. Build-Einstellungen werden automatisch aus `netlify.toml` gelesen
+### 1. Create Or Reuse A Discord Application
 
-### 2. Discord Application konfigurieren
+1. Open the Discord Developer Portal: https://discord.com/developers/applications
+2. Select your OnboardX bot application, or create a new application.
+3. Go to **OAuth2**.
+4. Copy the **Client ID**.
+5. Reset/copy the **Client Secret**.
+6. Add this redirect URL:
 
-1. Gehe zu https://discord.com/developers/applications
-2. Erstelle eine neue Application (oder nutze deine Bot-Application)
-3. Unter **OAuth2 → Redirects** hinzufügen:
-   ```
-   https://DEINE-DOMAIN.netlify.app/callback
-   ```
-4. **Client ID** und **Client Secret** notieren
-
-### 3. Umgebungsvariablen in Netlify setzen
-
-In Netlify → Site settings → Environment variables folgende Variablen setzen:
-
-| Variable              | Beschreibung                                         |
-|-----------------------|------------------------------------------------------|
-| `DISCORD_CLIENT_ID`   | Client ID deiner Discord Application                 |
-| `DISCORD_CLIENT_SECRET` | Client Secret deiner Discord Application           |
-| `DISCORD_BOT_TOKEN`   | Bot Token (für Guild-/Channel-/Rollen-Abruf)        |
-| `MONGODB_URI`         | MongoDB Connection String (z.B. MongoDB Atlas)       |
-| `JWT_SECRET`          | Beliebiger langer zufälliger String (min. 32 Zeichen) |
-| `REDIRECT_URI`        | `https://DEINE-DOMAIN.netlify.app/callback`          |
-
-### 4. Login-Page: Client ID eintragen
-
-In `public/index.html` die Zeile:
-```js
-const CLIENT_ID = '%%DISCORD_CLIENT_ID%%';
-```
-durch deine echte Client ID ersetzen:
-```js
-const CLIENT_ID = '1234567890123456789';
+```text
+https://YOUR-NETLIFY-SITE.netlify.app/callback
 ```
 
-### 5. MongoDB Datenbank
+For local Netlify testing, also add:
 
-Die Functions nutzen folgende Collections:
-- `guild_configs` — Konfigurationen pro Server
-- `guild_stats`   — Statistiken (werden von deinem Bot befüllt)
-
-Dein Bot muss die Stats in `guild_stats` schreiben:
-```js
-await db.collection('guild_stats').updateOne(
-  { guildId },
-  { $set: { messagesToday, openTickets, automodActions, warnsTotal, bansTotal } },
-  { upsert: true }
-);
+```text
+http://localhost:8888/callback
 ```
 
----
+### 2. Set The Client ID In The Login Page
 
-## 🗂 Projektstruktur
+Open `public/index.html` and set:
 
-```
-onboardx-dashboard/
-├── netlify.toml              # Netlify Build & Redirect-Konfiguration
-├── package.json              # Dependencies (mongodb, jsonwebtoken)
-├── netlify/
-│   └── functions/
-│       ├── _utils.js         # Shared helpers (DB, JWT, CORS)
-│       ├── auth.js           # POST /api/auth?code=... → JWT
-│       ├── guilds.js         # GET  /api/guilds        → Server-Liste
-│       ├── config.js         # GET/POST /api/config?guildId=...
-│       └── stats.js          # GET /api/stats?guildId=...
-└── public/
-    ├── index.html            # Login-Seite
-    ├── callback.html         # Discord OAuth Callback
-    └── dashboard.html        # Haupt-Dashboard
+```html
+<meta name="discord-client-id" content="YOUR_DISCORD_CLIENT_ID">
 ```
 
-## 🔌 API Endpoints
+The login button reads this meta tag automatically.
 
-| Method | Endpoint            | Beschreibung                              |
-|--------|---------------------|-------------------------------------------|
-| GET    | `/api/auth?code=`   | OAuth2 Code → JWT Token                  |
-| GET    | `/api/guilds`       | Server wo Bot + User Manage-Guild hat     |
-| GET    | `/api/config?guildId=` | Aktuelle Server-Konfiguration          |
-| POST   | `/api/config?guildId=` | Konfiguration speichern                |
-| GET    | `/api/stats?guildId=`  | Server-Stats, Channels, Rollen         |
+### 3. Deploy The Dashboard To Netlify
 
-Alle Endpoints außer `/api/auth` erfordern `Authorization: Bearer <JWT>`.
+1. Push this repository to GitHub.
+2. In Netlify, choose **Add new site** then **Import an existing project**.
+3. Select the repository.
+4. Use these settings:
 
-## 🔒 Sicherheit
+```text
+Base directory: onboardx-dashboard
+Build command: leave empty
+Publish directory: public
+Functions directory: netlify/functions
+```
 
-- Nur Nutzer mit **Manage Guild** oder **Administrator**-Permission können die Config ihres Servers sehen/ändern
-- JWT-Token laufen nach 7 Tagen ab
-- MongoDB-Verbindung ist server-seitig (nie im Frontend)
+The included `netlify.toml` already contains the redirects and function bundler config.
+
+### 4. Add Netlify Environment Variables
+
+In Netlify, open **Site settings** then **Environment variables** and add:
+
+| Variable | Value |
+| --- | --- |
+| `DISCORD_CLIENT_ID` | Discord OAuth client ID |
+| `DISCORD_CLIENT_SECRET` | Discord OAuth client secret |
+| `DISCORD_BOT_TOKEN` | Your Discord bot token |
+| `MONGODB_URI` | Same MongoDB URI used by the bot |
+| `MONGODB_DATABASE` | Same database name used by the bot, for example `onboardx` |
+| `JWT_SECRET` | Long random secret, 32+ characters |
+| `REDIRECT_URI` | `https://YOUR-NETLIFY-SITE.netlify.app/callback` |
+
+Important: `MONGODB_DATABASE` must match the bot database. If the bot uses `DB_NAME`, either set `MONGODB_DATABASE` to that same value or set `DB_NAME` in Netlify too.
+
+### 5. Redeploy
+
+After adding environment variables:
+
+1. Go to **Deploys**.
+2. Click **Trigger deploy**.
+3. Open your Netlify URL.
+4. Login with Discord.
+5. Pick a server where the bot is installed and your account has management permissions.
+6. Change settings and click **Speichern**.
+
+### 6. Required Bot Permissions
+
+The dashboard can only show and configure servers when:
+
+- the user has Owner, Administrator, Manage Server, Manage Channels, Manage Roles, Kick Members, or Ban Members permission
+- the bot is already in that server
+- the bot token in `DISCORD_BOT_TOKEN` is valid
+- the bot can read guild channels and roles
+
+### 7. Local Testing
+
+From the dashboard folder:
+
+```powershell
+cd onboardx-dashboard
+npm install
+npx netlify dev
+```
+
+Open:
+
+```text
+http://localhost:8888
+```
+
+Make sure the Discord application has `http://localhost:8888/callback` in OAuth2 redirects and set `REDIRECT_URI=http://localhost:8888/callback` for local testing.
+
+## API Endpoints
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/auth?code=...` | Discord OAuth callback to dashboard JWT |
+| `GET` | `/api/guilds` | Managed servers where the bot is present |
+| `GET` | `/api/stats?guildId=...` | Guild info, channels, roles, stats |
+| `GET` | `/api/config?guildId=...` | Load server config |
+| `POST` | `/api/config?guildId=...` | Save server config |
+
+All endpoints except `/api/auth` require:
+
+```text
+Authorization: Bearer JWT_FROM_LOGIN
+```
+
+## MongoDB Collections
+
+- `guild_configs` - server configuration read by the bot
+- `guild_stats` - optional dashboard stats
+
+The dashboard can work without `guild_stats`; missing stats show as zero.
+
+## Troubleshooting
+
+If login fails, check `REDIRECT_URI` exactly matches a Discord OAuth redirect.
+
+If no servers appear, make sure the bot is in the server and the logged-in Discord user has management permissions.
+
+If channels or roles do not load, verify `DISCORD_BOT_TOKEN` and bot permissions.
+
+If settings save but the bot does not react immediately, wait for the bot config cache TTL, currently controlled by `GUILD_CONFIG_TTL_MS`.

@@ -10,6 +10,7 @@ const { Collection } = require('discord.js');
 const db     = require('../database/firebase');
 const config = require('../config/default');
 const logger = require('../utils/logger');
+const { normalizeGuildConfig } = require('../utils/configNormalizer');
 
 /** @type {Collection<string, {data: object, expiresAt: number}>} */
 const cache = new Collection();
@@ -127,7 +128,7 @@ class GuildConfig {
 
     try {
       const doc = await db.getDoc(db.guildRef(guildId));
-      const data = doc ? mergeDefaults(DEFAULT_CONFIG, doc) : { ...DEFAULT_CONFIG, guildId };
+      const data = normalizeGuildConfig(doc ? mergeDefaults(DEFAULT_CONFIG, doc) : { ...DEFAULT_CONFIG, guildId });
       cache.set(guildId, { data, expiresAt: Date.now() + config.cache.guildConfigTTL });
       return data;
     } catch (err) {
@@ -145,11 +146,11 @@ class GuildConfig {
   static async update(guildId, updates) {
     try {
       const current = await GuildConfig.get(guildId);
-      const next = mergeDefaults(DEFAULT_CONFIG, current);
+      const next = normalizeGuildConfig(mergeDefaults(DEFAULT_CONFIG, current));
       applyDotUpdates(next, updates);
       next.guildId = guildId;
 
-      await db.setDoc(db.guildRef(guildId), next, false);
+      await db.setDoc(db.guildRef(guildId), normalizeGuildConfig(next), false);
       cache.delete(guildId);
     } catch (err) {
       logger.error(`GuildConfig.update(${guildId}):`, err);

@@ -60,12 +60,12 @@ class AntiSpamService {
     const { guild, member, author, content } = message;
     if (!guild || author.bot) return false;
     // Never flag admins
-    if (member.permissions.has(PermissionFlagsBits.ManageMessages)) return false;
+    if (member?.permissions?.has(PermissionFlagsBits.ManageMessages)) return false;
 
     const config = await GuildConfig.get(guild.id);
-    if (!config.modules?.antispam) return false;
-
-    const s = { ...DEFAULTS, ...(config.antispam ?? {}) };
+    const s = normalizeAntiSpamConfig(config);
+    if (!s.enabled) return false;
+    if (AntiSpamService._hasWhitelistedRole(member, s.whitelistRoles)) return false;
 
     // ── 1. Mention spam ──────────────────────────────────────────────────
     const mentions = message.mentions.users.size + message.mentions.roles.size;
@@ -114,9 +114,8 @@ class AntiSpamService {
   static async trackJoin(member) {
     const { guild } = member;
     const config    = await GuildConfig.get(guild.id);
-    if (!config.modules?.antispam) return;
-
-    const s   = { ...DEFAULTS, ...(config.antispam ?? {}) };
+    const s   = normalizeAntiSpamConfig(config);
+    if (!s.enabled) return;
     if (s.raidJoinEnabled === false) return;
     const now = Date.now();
 
@@ -132,6 +131,11 @@ class AntiSpamService {
   }
 
   // ── Private helpers ───────────────────────────────────────────────────────
+
+  static _hasWhitelistedRole(member, roleIds = []) {
+    if (!member || !Array.isArray(roleIds) || !roleIds.length) return false;
+    return roleIds.some(roleId => member.roles?.cache?.has(String(roleId)));
+  }
 
   static async _punish(message, s, reason) {
     // Always delete the offending message first
@@ -202,6 +206,39 @@ class AntiSpamService {
       }).catch(() => {});
     } catch { /* owner DM may fail */ }
   }
+}
+
+function normalizeAntiSpamConfig(config) {
+  const raw = config.antispam ?? {};
+  const dashboard = config.automod ?? {};
+  const action = dashboard.action ?? raw.punishment;
+  const actionPunishment = mapDashboardAction(action);
+
+  return {
+    ...DEFAULTS,
+    ...raw,
+    enabled: config.modules?.antispam === true || raw.enabled === true || dashboard.enabled === true,
+    msgLimit: Number(raw.msgLimit ?? dashboard.maxMessagesPerFive ?? DEFAULTS.msgLimit),
+    msgWindow: Number(raw.msgWindow ?? 5_000),
+    mentionLimit: Number(raw.mentionLimit ?? dashboard.maxMentionsPerMessage ?? DEFAULTS.mentionLimit),
+    mentionSpamEnabled: raw.mentionSpamEnabled ?? dashboard.antiMentionSpam ?? DEFAULTS.mentionSpamEnabled,
+    raidJoinEnabled: raw.raidJoinEnabled ?? dashboard.antiRaid ?? DEFAULTS.raidJoinEnabled,
+    punishment: actionPunishment.punishment,
+    muteDurationMs: Number(raw.muteDurationMs ?? actionPunishment.muteDurationMs ?? DEFAULTS.muteDurationMs),
+    whitelistRoles: normalizeStringArray(dashboard.whitelistRoles),
+  };
+}
+
+function mapDashboardAction(action) {
+  if (action === 'delete_timeout5') return { punishment: 'timeout', muteDurationMs: 5 * 60_000 };
+  if (action === 'delete_timeout30') return { punishment: 'timeout', muteDurationMs: 30 * 60_000 };
+  if (action === 'delete' || action === 'delete_warn') return { punishment: 'delete' };
+  return { punishment: action ?? DEFAULTS.punishment };
+}
+
+function normalizeStringArray(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(item => String(item).trim()).filter(Boolean);
 }
 
 // Auto-clean trackers periodically to prevent memory leaks

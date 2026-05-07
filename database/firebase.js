@@ -83,6 +83,7 @@ async function ensureIndexes() {
   if (indexesReady) return;
 
   await Promise.all([
+    getCollection(COLLECTIONS.guildConfigs).createIndex({ guildId: 1 }, { sparse: true }),
     getCollection(COLLECTIONS.guildUserXp).createIndex({ guildId: 1, totalXp: -1, userId: 1 }),
     getCollection(COLLECTIONS.guildUserXp).createIndex({ guildId: 1, userId: 1 }, { unique: true }),
     getCollection(COLLECTIONS.giveaways).createIndex({ messageId: 1 }, { sparse: true }),
@@ -145,7 +146,9 @@ function shardRef(shardId) {
 async function getDoc(ref) {
   switch (ref.kind) {
     case 'guild': {
-      const doc = await getCollection(COLLECTIONS.guildConfigs).findOne({ _id: ref.guildId });
+      const doc = await getCollection(COLLECTIONS.guildConfigs).findOne({
+        $or: [{ _id: ref.guildId }, { guildId: ref.guildId }],
+      });
       return doc ? withTimestamps(doc) : null;
     }
     case 'userXP': {
@@ -175,10 +178,11 @@ async function setDoc(ref, data, merge = true) {
   switch (ref.kind) {
     case 'guild': {
       const collection = getCollection(COLLECTIONS.guildConfigs);
-      const current = merge ? await collection.findOne({ _id: ref.guildId }) : null;
+      const existing = await collection.findOne({ $or: [{ _id: ref.guildId }, { guildId: ref.guildId }] });
+      const current = merge ? existing : null;
       const next = buildStoredDocument(current, data, merge);
       await collection.updateOne(
-        { _id: ref.guildId },
+        { _id: existing?._id ?? ref.guildId },
         {
           $set: sanitizeDocument({ ...next, guildId: ref.guildId, updatedAt: nowDate }),
           $setOnInsert: { createdAt: nowDate },

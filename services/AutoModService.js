@@ -32,13 +32,13 @@ class AutoModService {
    */
   static async check(message) {
     const { guild, member, content } = message;
-    if (!guild || message.author.bot) return false;
-    if (member.permissions.has(PermissionFlagsBits.ManageMessages)) return false;
+    if (!guild || message.author.bot || !content) return false;
+    if (member?.permissions?.has(PermissionFlagsBits.ManageMessages)) return false;
 
     const config = await GuildConfig.get(guild.id);
-    if (!config.modules?.automod) return false;
-
-    const am = config.automod ?? {};
+    const am = normalizeAutoModConfig(config);
+    if (!am.enabled) return false;
+    if (AutoModService._hasWhitelistedRole(member, am.whitelistRoles)) return false;
 
     // ── 1. Blocked words ──────────────────────────────────────────────────
     if (am.wordFilter?.enabled && am.wordFilter.words?.length) {
@@ -64,7 +64,7 @@ class AutoModService {
       const whitelist = am.linkFilter.whitelist ?? [];
       const links     = content.match(URL_REGEX) ?? [];
       URL_REGEX.lastIndex = 0;
-      const blocked   = links.find(l => !whitelist.some(w => l.includes(w)));
+      const blocked   = links.find(l => !isWhitelistedUrl(l, whitelist));
       if (blocked) {
         await AutoModService._action(message, am, 'Unapproved external link');
         return true;
@@ -97,6 +97,11 @@ class AutoModService {
 
   // ── Private ───────────────────────────────────────────────────────────────
 
+  static _hasWhitelistedRole(member, roleIds = []) {
+    if (!member || !Array.isArray(roleIds) || !roleIds.length) return false;
+    return roleIds.some(roleId => member.roles?.cache?.has(String(roleId)));
+  }
+
   static async _action(message, am, reason) {
     await message.delete().catch(() => {});
 
@@ -124,6 +129,54 @@ class AutoModService {
     });
 
     logger.debug(`AutoMod [${message.guild.name}] removed message from ${message.author.tag}: ${reason}`);
+  }
+}
+
+function normalizeAutoModConfig(config) {
+  const raw = config.automod ?? {};
+
+  return {
+    enabled: config.modules?.automod === true || raw.enabled === true,
+    action: raw.action ?? 'delete_warn',
+    whitelistRoles: normalizeStringArray(raw.whitelistRoles),
+    wordFilter: {
+      enabled: raw.wordFilter?.enabled === true,
+      words: normalizeStringArray(raw.wordFilter?.words),
+    },
+    inviteFilter: {
+      enabled: raw.inviteFilter?.enabled === true || raw.antiInvite === true,
+    },
+    linkFilter: {
+      enabled: raw.linkFilter?.enabled === true || raw.antiLinks === true,
+      whitelist: normalizeStringArray(raw.linkFilter?.whitelist ?? raw.allowedDomains),
+    },
+    capsFilter: {
+      enabled: raw.capsFilter?.enabled === true || raw.antiCaps === true,
+      threshold: Number(raw.capsFilter?.threshold ?? raw.capsThreshold ?? 70),
+    },
+    zalgoFilter: {
+      enabled: raw.zalgoFilter?.enabled === true || raw.antiZalgo === true,
+      threshold: Number(raw.zalgoFilter?.threshold ?? raw.zalgoThreshold ?? 10),
+    },
+  };
+}
+
+function normalizeStringArray(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(item => String(item).trim().toLowerCase()).filter(Boolean);
+}
+
+function isWhitelistedUrl(url, whitelist) {
+  if (!whitelist.length) return false;
+
+  try {
+    const hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+    return whitelist.some(domain => {
+      const normalized = String(domain).toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+      return hostname === normalized || hostname.endsWith(`.${normalized}`);
+    });
+  } catch {
+    return whitelist.some(domain => String(url).toLowerCase().includes(String(domain).toLowerCase()));
   }
 }
 

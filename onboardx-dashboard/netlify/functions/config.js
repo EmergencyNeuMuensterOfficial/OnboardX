@@ -9,6 +9,7 @@ const {
   options,
   getManagedGuildAccess,
 } = require('./_utils');
+const { toBotConfig, toDashboardConfig } = require('./_configAdapter');
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options();
@@ -27,12 +28,12 @@ exports.handler = async (event) => {
     const col = db.collection('guild_configs');
 
     if (event.httpMethod === 'GET') {
-      let config = await col.findOne({ guildId }, { projection: { _id: 0 } });
+      let config = await col.findOne({ $or: [{ _id: guildId }, { guildId }] }, { projection: { _id: 0 } });
       if (!config) {
         config = defaultConfig(guildId);
-        await col.insertOne({ ...config, guildId, createdAt: new Date(), updatedAt: new Date() });
+        await col.insertOne({ _id: guildId, ...config, guildId, createdAt: new Date(), updatedAt: new Date() });
       }
-      return ok(config);
+      return ok(toDashboardConfig(config));
     }
 
     if (event.httpMethod === 'POST') {
@@ -43,10 +44,11 @@ exports.handler = async (event) => {
         return err('Invalid JSON body', 400);
       }
 
-      const sanitizedBody = sanitizeConfigPayload(body);
+      const sanitizedBody = toBotConfig(sanitizeConfigPayload(body));
+      const existing = await col.findOne({ $or: [{ _id: guildId }, { guildId }] }, { projection: { _id: 1 } });
 
       await col.updateOne(
-        { guildId },
+        { _id: existing?._id ?? guildId },
         {
           $set: { ...sanitizedBody, guildId, updatedAt: new Date() },
         },

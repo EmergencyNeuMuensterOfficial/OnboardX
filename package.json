@@ -15,6 +15,7 @@
     "start:cluster:win": "set CLUSTER_COUNT=4 && node shard.js"
   },
   "dependencies": {
+    "@rbxts/topbar-plus": "^3.2.5",
     "canvas": "^3.2.3",
     "chalk": "^4.1.2",
     "discord-hybrid-sharding": "^2.2.0",

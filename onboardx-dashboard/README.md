@@ -14,7 +14,95 @@ Web dashboard for configuring OnboardX V2 Discord servers. It runs on Netlify wi
 - `netlify/functions/_configAdapter.js` - maps dashboard fields to bot config fields
 - `netlify/functions/_utils.js` - shared MongoDB, Discord API, CORS, and JWT helpers
 
-## Setup Tutorial
+## Setup Tutorial For Vercel
+
+### 1. Import The Project
+
+1. Push the repository to GitHub.
+2. In Vercel, choose **Add New Project**.
+3. Import the repository.
+4. Set **Root Directory** to:
+
+```text
+onboardx-dashboard
+```
+
+This is important. If Vercel deploys the repository root instead, `/callback` can return `404 Not Found`.
+
+Use these build settings:
+
+```text
+Framework Preset: Other
+Build Command: leave empty
+Output Directory: public
+Install Command: npm install
+```
+
+The included `vercel.json` maps:
+
+- `/callback` to `/callback.html`
+- `/dashboard` to `/dashboard.html`
+- `/api/auth`, `/api/guilds`, `/api/stats`, `/api/config` to Vercel serverless functions
+
+### 2. Create Or Reuse A Discord Application
+
+1. Open the Discord Developer Portal: https://discord.com/developers/applications
+2. Select your OnboardX bot application, or create a new application.
+3. Go to **OAuth2**.
+4. Copy the **Client ID**.
+5. Reset/copy the **Client Secret**.
+6. Add this redirect URL:
+
+```text
+https://YOUR-VERCEL-SITE.vercel.app/callback
+```
+
+If you use a custom domain, also add:
+
+```text
+https://YOUR-DOMAIN.com/callback
+```
+
+### 3. Set The Client ID In The Login Page
+
+Open `public/index.html` and set:
+
+```html
+<meta name="discord-client-id" content="YOUR_DISCORD_CLIENT_ID">
+```
+
+The login button reads this meta tag automatically.
+
+### 4. Add Vercel Environment Variables
+
+In Vercel, open **Project Settings** then **Environment Variables** and add:
+
+| Variable | Value |
+| --- | --- |
+| `DISCORD_CLIENT_ID` | Discord OAuth client ID |
+| `DISCORD_CLIENT_SECRET` | Discord OAuth client secret |
+| `DISCORD_BOT_TOKEN` | Your Discord bot token |
+| `MONGODB_URI` | Same MongoDB URI used by the bot |
+| `MONGODB_DATABASE` | Same database name used by the bot, usually `onboardx` |
+| `JWT_SECRET` | Long random secret, 32+ characters |
+| `REDIRECT_URI` | `https://YOUR-VERCEL-SITE.vercel.app/callback` |
+
+Important: `REDIRECT_URI` must exactly match the redirect URL in Discord, including `https`, domain, and `/callback`.
+
+Important: `MONGODB_DATABASE` must match the bot database exactly. The bot defaults to `onboardx`, while an older dashboard build defaulted to `OnboardX`; those are different databases.
+
+### 5. Redeploy
+
+After adding environment variables:
+
+1. Go to **Deployments**.
+2. Click **Redeploy**.
+3. Open your Vercel URL.
+4. Login with Discord.
+5. Pick a server where the bot is installed and your account has management permissions.
+6. Change settings and click **Speichern**.
+
+## Setup Tutorial For Netlify
 
 ### 1. Create Or Reuse A Discord Application
 
@@ -75,7 +163,7 @@ In Netlify, open **Site settings** then **Environment variables** and add:
 | `JWT_SECRET` | Long random secret, 32+ characters |
 | `REDIRECT_URI` | `https://YOUR-NETLIFY-SITE.netlify.app/callback` |
 
-Important: `MONGODB_DATABASE` must match the bot database. If the bot uses `DB_NAME`, either set `MONGODB_DATABASE` to that same value or set `DB_NAME` in Netlify too.
+Important: `MONGODB_DATABASE` must match the bot database exactly. If the bot uses `DB_NAME`, either set `MONGODB_DATABASE` to that same value or set `DB_NAME` in Netlify too.
 
 ### 5. Redeploy
 

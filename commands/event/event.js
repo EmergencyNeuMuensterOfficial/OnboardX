@@ -33,7 +33,7 @@ module.exports = {
       .addStringOption(o => o.setName('name').setDescription('Event name').setRequired(true))
       .addStringOption(o => o.setName('date').setDescription('Date in YYYY-MM-DD').setRequired(true))
       .addStringOption(o => o.setName('time').setDescription('Time in HH:mm (24h)').setRequired(true))
-      .addStringOption(o => o.setName('timezone').setDescription('IANA timezone, e.g. Europe/Berlin').setRequired(true))
+      .addStringOption(o => o.setName('timezone').setDescription('IANA timezone, e.g. Europe/Berlin'))
       .addStringOption(o => o.setName('repeat').setDescription('Repeat schedule').addChoices(...REPEAT_CHOICES))
       .addIntegerOption(o => o.setName('reminder').setDescription('Reminder minutes before start').setMinValue(1).setMaxValue(10080))
       .addStringOption(o => o.setName('description').setDescription('Event description'))
@@ -57,7 +57,7 @@ module.exports = {
       .addStringOption(o => o.setName('id').setDescription('Event ID').setRequired(true))
     ),
 
-  async execute(interaction, client) {
+  async execute(interaction, client, guildCfg) {
     const sub = interaction.options.getSubcommand();
 
     if (sub === 'create') {
@@ -66,11 +66,14 @@ module.exports = {
       const name = interaction.options.getString('name');
       const dateInput = interaction.options.getString('date');
       const timeInput = interaction.options.getString('time');
-      const timezone = interaction.options.getString('timezone');
+      const timezone = interaction.options.getString('timezone') ?? guildCfg?.events?.timezone ?? 'Europe/Berlin';
       const repeat = interaction.options.getString('repeat') ?? 'none';
-      const reminderMinutes = interaction.options.getInteger('reminder') ?? cfg.event.defaultReminderMinutes;
+      const reminderMinutes = interaction.options.getInteger('reminder') ?? (guildCfg?.events?.autoReminder === false ? 0 : cfg.event.defaultReminderMinutes);
       const description = interaction.options.getString('description') ?? null;
-      const channel = interaction.options.getChannel('channel') ?? interaction.channel;
+      const configuredChannel = guildCfg?.events?.eventsChannel
+        ? interaction.guild.channels.cache.get(guildCfg.events.eventsChannel)
+        : null;
+      const channel = interaction.options.getChannel('channel') ?? configuredChannel ?? interaction.channel;
 
       if (!cfg.event.allowedRepeats.includes(repeat)) {
         return interaction.reply({

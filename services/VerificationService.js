@@ -21,7 +21,7 @@ const captcha = require('../utils/captcha');
 const embed = require('../utils/embed');
 const logger = require('../utils/logger');
 
-/** @type {Collection<string, {answer:string, attempts:number, maxAttempts:number, guildId:string, roleId:string|null, timeoutId:NodeJS.Timeout, viaDm:boolean, createdAt:number}>} */
+/** @type {Collection<string, {answer:string, attempts:number, maxAttempts:number, guildId:string, roleId:string|null, onFail:string, timeoutId:NodeJS.Timeout, viaDm:boolean, createdAt:number}>} */
 const pending = new Collection();
 
 class VerificationService {
@@ -38,7 +38,7 @@ class VerificationService {
       .setDescription(
         'To access this server you must complete a quick verification.\n\n' +
         'Click the button below to begin.\n' +
-        'You will have 2 minutes to complete the challenge.'
+        'You will have a limited time to complete the challenge.'
       );
 
     await channel.send({ embeds: [panelEmbed], components: [row] });
@@ -70,7 +70,7 @@ class VerificationService {
       });
     }
 
-    const type = config.verification?.type ?? 'math';
+    const type = config.verification?.type === 'button' ? 'math' : (config.verification?.type ?? 'math');
     const result = type === 'image' ? await captcha.imageCaptcha() : captcha.mathCaptcha();
     const timeoutSecs = config.verification?.timeout ?? 120;
     const maxAttempts = config.verification?.maxAttempts ?? 3;
@@ -86,6 +86,7 @@ class VerificationService {
       maxAttempts,
       guildId: guild.id,
       roleId: roleId ?? null,
+      onFail: config.verification?.onFail ?? 'kick',
       viaDm: false,
     }, timeoutSecs, guild, user);
 
@@ -202,9 +203,18 @@ class VerificationService {
       }
     );
 
+    const action = state.onFail ?? 'kick';
+    if (action === 'log') return;
+
     try {
       const member = await guild.members.fetch(user.id);
-      await member.kick('Failed verification captcha');
+      if (action === 'ban' && member.bannable) {
+        await member.ban({ reason: 'Failed verification captcha' });
+      } else if (action === 'timeout_24h' && member.moderatable) {
+        await member.timeout(24 * 60 * 60 * 1000, 'Failed verification captcha');
+      } else if (member.kickable) {
+        await member.kick('Failed verification captcha');
+      }
     } catch {
       // ignore
     }
@@ -227,6 +237,7 @@ class VerificationService {
       maxAttempts,
       guildId: guild.id,
       roleId: roleId ?? null,
+      onFail: (await GuildConfig.get(guild.id)).verification?.onFail ?? 'kick',
       viaDm: true,
     }, timeoutSecs, guild, interaction.user);
 

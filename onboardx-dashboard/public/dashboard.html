@@ -507,6 +507,7 @@
             <div class="toggle-row" style="padding-top:0"><div class="toggle-info"><div class="toggle-name">Verifizierung aktiv</div></div><label class="toggle"><input type="checkbox" data-cfg="verification.enabled"><div class="toggle-track"></div><div class="toggle-thumb"></div></label></div>
             <div class="form-group" style="margin-top:14px"><label class="form-label">Captcha-Typ</label><select class="form-input" data-cfg="verification.type"><option value="math">Math-Captcha</option><option value="image">Bild-Captcha</option><option value="button">Button-Click</option></select></div>
             <div class="form-group"><label class="form-label">Verifizierungs-Kanal</label><select class="form-input" data-cfg="verification.channel" id="sel-verifyChannel"><option value="">– Keiner –</option></select></div>
+            <div class="form-group"><label class="form-label">Rolle nach Verifizierung</label><select class="form-input" data-cfg="verification.roleAfter" data-type="single-array" id="sel-verifyRole"><option value="">– Keine –</option></select></div>
             <div class="toggle-row"><div class="toggle-info"><div class="toggle-name">DM-Fallback</div><div class="toggle-desc">Captcha per DM senden</div></div><label class="toggle"><input type="checkbox" data-cfg="verification.dmFallback"><div class="toggle-track"></div><div class="toggle-thumb"></div></label></div>
           </div>
         </div>
@@ -531,6 +532,7 @@
             <div class="toggle-row" style="padding-top:0"><div class="toggle-info"><div class="toggle-name">Tickets aktiviert</div></div><label class="toggle"><input type="checkbox" data-cfg="tickets.enabled"><div class="toggle-track"></div><div class="toggle-thumb"></div></label></div>
             <div class="form-group" style="margin-top:14px"><label class="form-label">Panel-Kanal</label><select class="form-input" data-cfg="tickets.panelChannel" id="sel-ticketPanel"><option value="">– Keiner –</option></select></div>
             <div class="form-group"><label class="form-label">Ticket-Log</label><select class="form-input" data-cfg="tickets.logChannel" id="sel-ticketLog"><option value="">– Keiner –</option></select></div>
+            <div class="form-group"><label class="form-label">Support-Rolle</label><select class="form-input" data-cfg="tickets.supportRoles" data-type="single-array" id="sel-ticketSupportRole"><option value="">– Keine –</option></select></div>
             <div class="form-group"><label class="form-label">Max. Tickets / User</label><input type="number" class="form-input" min="1" max="10" data-cfg="tickets.maxPerUser"></div>
             <div class="toggle-row"><div class="toggle-info"><div class="toggle-name">Transcript speichern</div><div class="toggle-desc">HTML-Transcript beim Schließen</div></div><label class="toggle"><input type="checkbox" data-cfg="tickets.transcripts"><div class="toggle-track"></div><div class="toggle-thumb"></div></label></div>
           </div>
@@ -554,6 +556,7 @@
             <div class="form-group" style="margin-top:14px"><label class="form-label">XP pro Nachricht (Min – Max)</label><div style="display:flex;gap:10px"><input type="number" class="form-input" min="1" max="100" data-cfg="leveling.xpMin" style="width:50%"><input type="number" class="form-input" min="1" max="200" data-cfg="leveling.xpMax" style="width:50%"></div></div>
             <div class="form-group"><label class="form-label">Cooldown (Sekunden)</label><input type="number" class="form-input" min="0" max="3600" data-cfg="leveling.cooldown"></div>
             <div class="form-group"><label class="form-label">Level-Up Benachrichtigung</label><select class="form-input" data-cfg="leveling.levelUpNotification"><option value="channel">Im Channel</option><option value="fixed">Bestimmter Channel</option><option value="dm">DM</option><option value="none">Keine</option></select></div>
+            <div class="form-group"><label class="form-label">Level-Up Channel</label><select class="form-input" data-cfg="leveling.levelUpChannel" id="sel-levelUpChannel"><option value="">– Keiner –</option></select></div>
           </div>
         </div>
         <div class="card">
@@ -595,6 +598,7 @@
           <div class="card-body">
             <div class="form-group"><label class="form-label">Giveaway-Kanal</label><select class="form-input" data-cfg="giveaways.channel" id="sel-giveawayChannel"><option value="">– Keiner –</option></select></div>
             <div class="form-group"><label class="form-label">Manager-Rolle</label><select class="form-input" data-cfg="giveaways.managerRole" id="sel-giveawayRole"><option value="">– Keine –</option></select></div>
+            <div class="form-group"><label class="form-label">Poll Manager-Rolle</label><select class="form-input" data-cfg="polls.managerRole" id="sel-pollRole"><option value="">– Keine –</option></select></div>
             <p style="font-size:13px;color:var(--text-secondary);margin-top:8px;line-height:1.6">Giveaways starten mit <code style="background:var(--bg-void);padding:2px 6px;border-radius:4px">/giveaway start</code>.</p>
           </div>
         </div>
@@ -774,6 +778,7 @@ function populateChannelSelects() {
     'sel-verifyChannel':   config.verification?.channel,
     'sel-ticketPanel':     config.tickets?.panelChannel,
     'sel-ticketLog':       config.tickets?.logChannel,
+    'sel-levelUpChannel':  config.leveling?.levelUpChannel,
     'sel-eventsChannel':   config.events?.eventsChannel,
     'sel-giveawayChannel': config.giveaways?.channel,
   };
@@ -784,8 +789,16 @@ function populateChannelSelects() {
 }
 
 function populateRoleSelects() {
-  const el = document.getElementById('sel-giveawayRole');
-  if (el) el.innerHTML = roleOptions(config.giveaways?.managerRole || '');
+  const map = {
+    'sel-giveawayRole': config.giveaways?.managerRole,
+    'sel-pollRole': config.polls?.managerRole,
+    'sel-verifyRole': Array.isArray(config.verification?.roleAfter) ? config.verification.roleAfter[0] : '',
+    'sel-ticketSupportRole': Array.isArray(config.tickets?.supportRoles) ? config.tickets.supportRoles[0] : '',
+  };
+  for (const [id, cur] of Object.entries(map)) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = roleOptions(cur || '');
+  }
 }
 
 // ── STATS OVERVIEW ─────────────────────────────────────────────────────────
@@ -819,6 +832,8 @@ function applyConfigToUI() {
       el.checked = !!val;
     } else if (el.tagName === 'TEXTAREA' && el.dataset.type === 'lines') {
       el.value = Array.isArray(val) ? val.join('\n') : val;
+    } else if (el.tagName === 'SELECT' && el.dataset.type === 'single-array') {
+      el.value = Array.isArray(val) ? String(val[0] || '') : String(val || '');
     } else if (el.tagName === 'SELECT') {
       el.value = String(val);
     } else if (el.type === 'range') {
@@ -852,6 +867,8 @@ function readUIIntoConfig() {
       val = el.checked;
     } else if (el.tagName === 'TEXTAREA' && el.dataset.type === 'lines') {
       val = el.value.split('\n').map(s => s.trim()).filter(Boolean);
+    } else if (el.tagName === 'SELECT' && el.dataset.type === 'single-array') {
+      val = el.value ? [el.value] : [];
     } else if (el.type === 'number') {
       val = Number(el.value);
     } else if (el.type === 'range') {

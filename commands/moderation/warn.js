@@ -75,7 +75,12 @@ module.exports = {
       }).catch(() => {});
 
       // Auto-punishment thresholds (configurable)
-      const thresholds  = guildCfg?.moderation?.warnThresholds ?? { 3: 'mute', 5: 'kick', 7: 'ban' };
+      const thresholds  = guildCfg?.moderation?.warnThresholds ?? {
+        [guildCfg?.moderation?.warnThresholdTimeout ?? 3]: 'mute',
+        [guildCfg?.moderation?.warnThresholdKick ?? 5]: 'kick',
+        [guildCfg?.moderation?.warnThresholdBan ?? 7]: 'ban',
+      };
+      const timeoutDurationMs = Number(guildCfg?.moderation?.timeoutDuration ?? 10) * 60_000;
       let   autoPunish  = null;
 
       for (const [n, action] of Object.entries(thresholds)) {
@@ -84,8 +89,8 @@ module.exports = {
 
       let punishNote = '';
       if (autoPunish === 'mute' && target.moderatable) {
-        await target.timeout(10 * 60_000, `Auto-timeout: ${count} warnings`).catch(() => {});
-        punishNote = '\n⏱️ **Auto-timeout applied** (10 minutes)';
+        await target.timeout(timeoutDurationMs, `Auto-timeout: ${count} warnings`).catch(() => {});
+        punishNote = `\n⏱️ **Auto-timeout applied** (${Math.round(timeoutDurationMs / 60_000)} minutes)`;
       } else if (autoPunish === 'kick' && target.kickable) {
         await target.kick(`Auto-kick: ${count} warnings`).catch(() => {});
         punishNote = '\n👢 **Auto-kick applied**';

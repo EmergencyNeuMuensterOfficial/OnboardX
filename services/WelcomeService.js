@@ -127,7 +127,9 @@ function interpolate(template, member, guild) {
     .replace(/{user}/g,        member.toString())
     .replace(/{username}/g,    member.user.username)
     .replace(/{server}/g,      guild.name)
-    .replace(/{memberCount}/g, String(guild.memberCount));
+    .replace(/{memberCount}/g, String(guild.memberCount))
+    .replace(/{count}/g,       String(guild.memberCount))
+    .replace(/{id}/g,          member.id);
 }
 
 module.exports = WelcomeService;

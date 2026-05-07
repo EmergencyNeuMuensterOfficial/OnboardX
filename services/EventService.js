@@ -125,16 +125,17 @@ class EventService {
     if (!startsAt || Number.isNaN(startsAt.getTime())) return;
 
     const timers = {};
-    const reminderAt = startsAt.getTime() - (Number(event.reminderMinutes ?? cfg.event.defaultReminderMinutes) * 60 * 1000);
+    const reminderMinutes = Number(event.reminderMinutes ?? cfg.event.defaultReminderMinutes);
+    const reminderAt = startsAt.getTime() - (reminderMinutes * 60 * 1000);
     const reminderDelay = reminderAt - Date.now();
     const startDelay = startsAt.getTime() - Date.now();
 
-    if (reminderDelay > 0) {
+    if (reminderMinutes > 0 && reminderDelay > 0) {
       timers.reminder = setTimeout(() => {
         void this._sendReminder(client, event.id);
       }, reminderDelay);
       timers.reminder.unref?.();
-    } else if (!event.reminderSentAt && startDelay > 0) {
+    } else if (reminderMinutes > 0 && !event.reminderSentAt && startDelay > 0) {
       void this._sendReminder(client, event.id);
     }
 

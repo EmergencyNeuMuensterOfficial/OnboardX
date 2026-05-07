@@ -16,10 +16,15 @@ exports.handler = async (event) => {
   if (!code) return err('Missing code', 400);
 
   // Validate env vars up front so the error is clear
-  const { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, REDIRECT_URI } = process.env;
-  if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET || !REDIRECT_URI) {
-    console.error('Missing Discord env vars');
-    return err('Server misconfigured: missing Discord credentials', 500);
+  const { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } = process.env;
+  const REDIRECT_URI = process.env.REDIRECT_URI || inferRedirectUri(event);
+  const missing = [];
+  if (!DISCORD_CLIENT_ID) missing.push('DISCORD_CLIENT_ID');
+  if (!DISCORD_CLIENT_SECRET) missing.push('DISCORD_CLIENT_SECRET');
+  if (!REDIRECT_URI) missing.push('REDIRECT_URI');
+  if (missing.length) {
+    console.error(`Missing Discord env vars: ${missing.join(', ')}`);
+    return err(`Server misconfigured: missing ${missing.join(', ')}`, 500);
   }
 
   try {
@@ -115,3 +120,11 @@ exports.handler = async (event) => {
     return err('Authentication failed: ' + e.message, 500);
   }
 };
+
+function inferRedirectUri(event) {
+  const host = event.headers?.['x-forwarded-host'] || event.headers?.host;
+  if (!host) return null;
+
+  const proto = event.headers?.['x-forwarded-proto'] || 'https';
+  return `${proto}://${host}/callback`;
+}

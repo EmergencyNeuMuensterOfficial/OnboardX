@@ -61,6 +61,10 @@ module.exports = {
     const sub = interaction.options.getSubcommand();
 
     if (sub === 'create') {
+      if (!canManagePolls(interaction, guildCfg)) {
+        if (!await assertPermission(interaction, 'mod')) return;
+      }
+
       const question  = interaction.options.getString('question');
       const optStr    = interaction.options.getString('options');
       const durStr    = interaction.options.getString('duration') ?? '24h';

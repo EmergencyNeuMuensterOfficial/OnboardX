@@ -9,7 +9,7 @@
 
 'use strict';
 
-const { InteractionType, MessageFlags } = require('discord.js');
+const { InteractionType, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const GuildConfig         = require('../models/GuildConfig');
 const cooldown            = require('../utils/cooldown');
 const embed               = require('../utils/embed');
@@ -113,6 +113,18 @@ async function handleSlash(interaction, client) {
     : null;
 
   const isPremium = config?.premium ?? false;
+
+  if (
+    config?.system?.maintenanceMode === true &&
+    !isOwner(interaction.user.id) &&
+    !interaction.member?.permissions?.has(PermissionFlagsBits.ManageGuild)
+  ) {
+    if (deferTimer) clearTimeout(deferTimer);
+    return interaction.reply({
+      embeds: [embed.warn('Maintenance Mode', 'Commands are temporarily disabled for this server.')],
+      flags: MessageFlags.Ephemeral,
+    });
+  }
 
   // Cooldown check (owners bypass)
   if (!isOwner(interaction.user.id)) {

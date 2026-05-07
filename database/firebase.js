@@ -36,6 +36,7 @@ function getEnv(name, fallback = null) {
 function mongoConfig() {
   const uri = getEnv('MONGODB_URI', 'mongodb://127.0.0.1:27017');
   const isSrv = uri.startsWith('mongodb+srv://');
+  const uriHasTlsOption = hasMongoTlsOption(uri);
 
   return {
     uri,
@@ -50,7 +51,9 @@ function mongoConfig() {
       minPoolSize: Number(getEnv('MONGODB_MIN_POOL_SIZE', '0')),
       family: Number(getEnv('MONGODB_IP_FAMILY', '4')),
       directConnection: getEnv('MONGODB_DIRECT_CONNECTION', 'false') === 'true',
-      tls: getEnv('MONGODB_TLS', isSrv ? 'true' : 'false') === 'true',
+      ...(!uriHasTlsOption && {
+        tls: getEnv('MONGODB_TLS', isSrv ? 'true' : 'false') === 'true',
+      }),
       tlsAllowInvalidCertificates: getEnv('MONGODB_TLS_ALLOW_INVALID_CERTIFICATES', 'false') === 'true',
       tlsAllowInvalidHostnames: getEnv('MONGODB_TLS_ALLOW_INVALID_HOSTNAMES', 'false') === 'true',
       tlsCAFile: getEnv('MONGODB_TLS_CA_FILE', undefined),
@@ -427,6 +430,11 @@ function deepMerge(target, source) {
 
 function maskMongoUri(uri) {
   return String(uri).replace(/\/\/([^:\/]+):([^@]+)@/, '//$1:***@');
+}
+
+function hasMongoTlsOption(uri) {
+  const query = String(uri).split('?')[1] ?? '';
+  return /(^|&)(tls|ssl)=/i.test(query);
 }
 
 module.exports = {

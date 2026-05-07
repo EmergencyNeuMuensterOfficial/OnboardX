@@ -37,6 +37,14 @@ function normalizeGuildConfig(config = {}) {
     };
   }
 
+  if (next.moderation) {
+    next.moderation.warnThresholds = next.moderation.warnThresholds ?? {
+      [Number(next.moderation.warnThresholdTimeout ?? 3)]: 'mute',
+      [Number(next.moderation.warnThresholdKick ?? 5)]: 'kick',
+      [Number(next.moderation.warnThresholdBan ?? 7)]: 'ban',
+    };
+  }
+
   if (next.welcome) {
     next.welcome.channelId = first(next.welcome.channelId, next.welcome.channel);
     next.welcome.farewellChannelId = first(next.welcome.farewellChannelId, next.welcome.farewellChannel);
@@ -71,6 +79,11 @@ function normalizeGuildConfig(config = {}) {
   if (next.leveling) {
     next.leveling.multiplier = Number(first(next.leveling.multiplier, 1) ?? 1);
     next.leveling.cooldown = Number(first(next.leveling.cooldown, 60) ?? 60);
+    next.leveling.xpMin = Number(first(next.leveling.xpMin, 15) ?? 15);
+    next.leveling.xpMax = Number(first(next.leveling.xpMax, 25) ?? 25);
+    next.leveling.channelId = next.leveling.levelUpNotification === 'fixed'
+      ? first(next.leveling.channelId, next.leveling.levelUpChannel)
+      : next.leveling.channelId;
   }
 
   if (next.giveaways) {

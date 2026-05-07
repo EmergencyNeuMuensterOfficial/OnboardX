@@ -35,12 +35,13 @@ class LevelingService {
       // Cooldown check
       const key      = `${guild.id}:${author.id}`;
       const now      = Date.now();
-      const cooldown = cfg.cooldowns.leveling;
+      const cooldown = Number(config.leveling?.cooldown ?? (cfg.cooldowns.leveling / 1000)) * 1000;
       if ((xpCooldowns.get(key) ?? 0) > now) return;
       xpCooldowns.set(key, now + cooldown);
 
       // XP calc (with premium multiplier)
-      const { min, max } = cfg.leveling.xpPerMessage;
+      const min = Number(config.leveling?.xpMin ?? cfg.leveling.xpPerMessage.min);
+      const max = Number(config.leveling?.xpMax ?? cfg.leveling.xpPerMessage.max);
       const base         = Math.floor(Math.random() * (max - min + 1)) + min;
       const multiplier   = config.premium
         ? (config.leveling?.multiplier ?? premCfg.leveling.xpMultiplier)
@@ -65,8 +66,16 @@ class LevelingService {
    * Post a level-up message in the appropriate channel.
    */
   static async announceLevel(message, level, config) {
-    const targetChannelId = config.leveling?.channelId;
-    const channel         = targetChannelId
+    const mode = config.leveling?.levelUpNotification ?? 'channel';
+    if (mode === 'none') return;
+
+    if (mode === 'dm') {
+      await message.author.send({ embeds: [embed.levelUp(message.member, level)] }).catch(() => {});
+      return;
+    }
+
+    const targetChannelId = config.leveling?.channelId ?? config.leveling?.levelUpChannel;
+    const channel = mode === 'fixed' && targetChannelId
       ? message.guild.channels.cache.get(targetChannelId)
       : message.channel;
     if (!channel) return;

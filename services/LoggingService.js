@@ -25,7 +25,7 @@ class LoggingService {
       if (!config.modules?.logging) return;
       if (config.logging?.events?.[event] === false) return;
 
-      const channelId = config.logging?.channelId;
+      const channelId = resolveLogChannelId(config.logging ?? {}, event);
       if (!channelId) return;
 
       const channel = guild.channels.cache.get(channelId);
@@ -149,6 +149,16 @@ class LoggingService {
     const log = embed.log(`🔨 Moderation — ${action}`, fields, cfg.warnColor);
     await LoggingService.log(guild, 'modAction', log);
   }
+}
+
+function resolveLogChannelId(logging, event) {
+  if (event === 'modAction') return logging.modLogChannel ?? logging.channelId;
+  if (event === 'messageDelete' || event === 'messageEdit') return logging.messageLogChannel ?? logging.channelId;
+  if (event === 'memberJoin' || event === 'memberLeave') return logging.joinLeaveChannel ?? logging.channelId;
+  if (event === 'roleChange' || event === 'channelCreate' || event === 'channelDelete' || event === 'voiceUpdate') {
+    return logging.serverLogChannel ?? logging.channelId;
+  }
+  return logging.channelId;
 }
 
 module.exports = LoggingService;

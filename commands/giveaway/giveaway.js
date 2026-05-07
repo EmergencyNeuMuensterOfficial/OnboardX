@@ -73,7 +73,10 @@ module.exports = {
       const prize       = interaction.options.getString('prize');
       const durStr      = interaction.options.getString('duration');
       const winnerCount = interaction.options.getInteger('winners') ?? 1;
-      const targetCh    = interaction.options.getChannel('channel') ?? interaction.channel;
+      const configuredChannel = guildCfg?.giveaway?.channelId
+        ? interaction.guild.channels.cache.get(guildCfg.giveaway.channelId)
+        : null;
+      const targetCh = interaction.options.getChannel('channel') ?? configuredChannel ?? interaction.channel;
 
       const durationMs = time.parseDuration(durStr);
       if (!durationMs) {

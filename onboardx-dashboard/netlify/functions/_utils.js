@@ -11,6 +11,7 @@ async function getDb() {
     const uri = process.env.MONGODB_URI;
     if (!uri) throw new Error('Missing MONGODB_URI');
 
+    const uriHasTlsOption = hasMongoTlsOption(uri);
     cachedClient = new MongoClient(uri, {
       ignoreUndefined: true,
       serverSelectionTimeoutMS: Number(process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS || 15000),
@@ -20,9 +21,11 @@ async function getDb() {
       minPoolSize: Number(process.env.MONGODB_MIN_POOL_SIZE || 0),
       family: Number(process.env.MONGODB_IP_FAMILY || 4),
       directConnection: process.env.MONGODB_DIRECT_CONNECTION === 'true',
-      tls: process.env.MONGODB_TLS
-        ? process.env.MONGODB_TLS === 'true'
-        : uri.startsWith('mongodb+srv://'),
+      ...(!uriHasTlsOption && {
+        tls: process.env.MONGODB_TLS
+          ? process.env.MONGODB_TLS === 'true'
+          : uri.startsWith('mongodb+srv://'),
+      }),
       tlsAllowInvalidCertificates: process.env.MONGODB_TLS_ALLOW_INVALID_CERTIFICATES === 'true',
       tlsAllowInvalidHostnames: process.env.MONGODB_TLS_ALLOW_INVALID_HOSTNAMES === 'true',
       retryWrites: process.env.MONGODB_RETRY_WRITES !== 'false',
@@ -32,11 +35,16 @@ async function getDb() {
     cachedDb = cachedClient.db(
       process.env.MONGODB_DATABASE ||
       process.env.DB_NAME ||
-      'OnboardX'
+      'onboardx'
     );
   }
 
   return cachedDb;
+}
+
+function hasMongoTlsOption(uri) {
+  const query = String(uri).split('?')[1] ?? '';
+  return /(^|&)(tls|ssl)=/i.test(query);
 }
 
 function signToken(payload) {

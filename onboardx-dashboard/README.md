@@ -1,16 +1,17 @@
 # OnboardX V2 Dashboard
 
-Web dashboard for configuring OnboardX V2 Discord servers. It runs on Netlify with static HTML pages, Netlify Functions, Discord OAuth, and the same MongoDB `guild_configs` collection used by the bot.
+React and Tailwind dashboard for configuring OnboardX V2 Discord servers. It runs on Vercel or Netlify with serverless functions, Discord OAuth, and the same MongoDB `guild_configs` collection used by the bot.
 
 ## What Is Included
 
-- `public/index.html` - Discord login page
-- `public/callback.html` - OAuth callback page
-- `public/dashboard.html` - server configuration UI
+- `index.html` - Vite app entry
+- `src/App.tsx` - TSX React routes for home, callback, dashboard, and status
+- `src/main.css` - Tailwind styles
 - `netlify/functions/auth.js` - exchanges Discord OAuth code for a dashboard session
 - `netlify/functions/guilds.js` - lists servers the logged-in user can manage
 - `netlify/functions/stats.js` - loads guild info, channels, roles, and stored stats
 - `netlify/functions/config.js` - loads and saves server configuration
+- `netlify/functions/status.js` - public status JSON for `/status`
 - `netlify/functions/_configAdapter.js` - maps dashboard fields to bot config fields
 - `netlify/functions/_utils.js` - shared MongoDB, Discord API, CORS, and JWT helpers
 
@@ -32,17 +33,16 @@ This is important. If Vercel deploys the repository root instead, `/callback` ca
 Use these build settings:
 
 ```text
-Framework Preset: Other
-Build Command: leave empty
-Output Directory: public
+Framework Preset: Vite
+Build Command: npm run build
+Output Directory: dist
 Install Command: npm install
 ```
 
 The included `vercel.json` maps:
 
-- `/callback` to `/callback.html`
-- `/dashboard` to `/dashboard.html`
-- `/api/auth`, `/api/guilds`, `/api/stats`, `/api/config` to Vercel serverless functions
+- `/callback`, `/dashboard`, and `/status` to the React app
+- `/api/auth`, `/api/guilds`, `/api/stats`, `/api/config`, `/api/status` to Vercel serverless functions
 
 ### 2. Create Or Reuse A Discord Application
 
@@ -65,13 +65,13 @@ https://YOUR-DOMAIN.com/callback
 
 ### 3. Set The Client ID In The Login Page
 
-Open `public/index.html` and set:
+Open `index.html` and set:
 
 ```html
 <meta name="discord-client-id" content="YOUR_DISCORD_CLIENT_ID">
 ```
 
-The login button reads this meta tag automatically.
+The React login button reads this meta tag automatically.
 
 ### 4. Add Vercel Environment Variables
 
@@ -125,7 +125,7 @@ http://localhost:8888/callback
 
 ### 2. Set The Client ID In The Login Page
 
-Open `public/index.html` and set:
+Open `index.html` and set:
 
 ```html
 <meta name="discord-client-id" content="YOUR_DISCORD_CLIENT_ID">
@@ -142,8 +142,8 @@ The login button reads this meta tag automatically.
 
 ```text
 Base directory: onboardx-dashboard
-Build command: leave empty
-Publish directory: public
+Build command: npm run build
+Publish directory: dist
 Functions directory: netlify/functions
 ```
 
@@ -192,16 +192,16 @@ From the dashboard folder:
 ```powershell
 cd onboardx-dashboard
 npm install
-npx netlify dev
+npm run dev
 ```
 
 Open:
 
 ```text
-http://localhost:8888
+http://localhost:5173
 ```
 
-Make sure the Discord application has `http://localhost:8888/callback` in OAuth2 redirects and set `REDIRECT_URI=http://localhost:8888/callback` for local testing.
+For full local serverless testing, use `npx netlify dev` instead. Make sure the Discord application has the matching local callback URL in OAuth2 redirects and set `REDIRECT_URI` to that exact callback URL.
 
 ## API Endpoints
 
@@ -212,8 +212,9 @@ Make sure the Discord application has `http://localhost:8888/callback` in OAuth2
 | `GET` | `/api/stats?guildId=...` | Guild info, channels, roles, stats |
 | `GET` | `/api/config?guildId=...` | Load server config |
 | `POST` | `/api/config?guildId=...` | Save server config |
+| `GET` | `/api/status` | Public status data for the status page |
 
-All endpoints except `/api/auth` require:
+All endpoints except `/api/auth` and `/api/status` require:
 
 ```text
 Authorization: Bearer JWT_FROM_LOGIN
@@ -223,6 +224,9 @@ Authorization: Bearer JWT_FROM_LOGIN
 
 - `guild_configs` - server configuration read by the bot
 - `guild_stats` - optional dashboard stats
+- `system_docs` - overall bot heartbeat/status
+- `cluster_statuses` and `shard_statuses` - internal health rows aggregated by `/api/status`
+- `incidents` - optional public incident history
 
 The dashboard can work without `guild_stats`; missing stats show as zero.
 

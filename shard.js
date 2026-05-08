@@ -28,6 +28,7 @@ const CLUSTER_RESPAWN_DELAY_MS = parseInt(process.env.CLUSTER_RESPAWN_DELAY_MS ?
 const CLUSTER_RESPAWN_TIMEOUT_MS = parseInt(process.env.CLUSTER_RESPAWN_TIMEOUT_MS ?? '-1', 10);
 const HEALTH_PORT        = parseInt(process.env.HEALTH_PORT ?? '9090', 10);
 const STATUS_SYNC_MS     = parseInt(process.env.CLUSTER_STATUS_SYNC_MS ?? '30000', 10);
+const CONTROL_POLL_MS    = parseInt(process.env.CLUSTER_CONTROL_POLL_MS ?? '5000', 10);
 const STATUSJSON_PATH    = path.join(__dirname, 'monitoring', 'statusjson.json');
 // If the manager crashes hard, no shutdown hook runs. This TTL lets UIs mark status as offline when stale.
 const STATUS_TTL_MS      = parseInt(process.env.CLUSTER_STATUS_TTL_MS ?? String(STATUS_SYNC_MS * 3), 10);
@@ -44,6 +45,7 @@ const manager = new ClusterManager(path.join(__dirname, 'index.js'), {
 
 let lastSnapshot = null;
 const respawningClusters = new Set();
+const administrativelyStoppedClusters = new Set();
 
 manager.on('clusterCreate', cluster => {
   logger.info(`[Manager] Cluster #${cluster.id} Spawning`);
@@ -98,7 +100,9 @@ manager.on('clusterCreate', cluster => {
       error: err.message,
       lastEventAt: new Date().toISOString(),
     });
-    void ensureClusterRespawn(cluster, `error: ${err.message}`);
+    if (!administrativelyStoppedClusters.has(cluster.id)) {
+      void ensureClusterRespawn(cluster, `error: ${err.message}`);
+    }
   });
 
   cluster.on('death', proc => {
@@ -111,7 +115,9 @@ manager.on('clusterCreate', cluster => {
       exitCode: proc?.exitCode ?? null,
       lastEventAt: new Date().toISOString(),
     });
-    void ensureClusterRespawn(cluster, `death: ${proc?.exitCode ?? 'unknown'}`);
+    if (!administrativelyStoppedClusters.has(cluster.id)) {
+      void ensureClusterRespawn(cluster, `death: ${proc?.exitCode ?? 'unknown'}`);
+    }
   });
 });
 
@@ -148,6 +154,9 @@ manager.on('clusterCreate', cluster => {
     );
     // Don't block startup on the first broadcastEval + Firestore writes.
     setTimeout(() => void syncClusterStatusToFirebase(manager).catch(() => {}), 1_000).unref?.();
+    setInterval(() => void pollControlCommands(manager).catch(err => {
+      logger.warn(`[Manager] Control command poll skipped: ${err.message}`);
+    }), CONTROL_POLL_MS).unref();
 
     setInterval(async () => {
       try {
@@ -201,6 +210,22 @@ async function collectClusterBreakdown(mgr) {
       return states[statusCode] ?? 'unknown';
     };
 
+    const totalShards = c.cluster?.info?.TOTAL_SHARDS ?? c.options?.shardCount ?? c.ws.shards.size ?? 1;
+    const shardForGuild = (guildId) => {
+      try {
+        return Number((BigInt(guildId) >> 22n) % BigInt(Math.max(1, Number(totalShards) || 1)));
+      } catch {
+        return null;
+      }
+    };
+
+    const guildPlacements = [...c.guilds.cache.values()].map(guild => ({
+      id: guild.id,
+      name: guild.name,
+      shardId: guild.shardId ?? shardForGuild(guild.id),
+      memberCount: guild.memberCount ?? null,
+    }));
+
     const shardStates = [...c.ws.shards.values()].map(shard => ({
       shardId: shard.id,
       state: mapStatus(shard.status),
@@ -208,6 +233,7 @@ async function collectClusterBreakdown(mgr) {
       ping: typeof shard.ping === 'number' ? shard.ping : c.ws.ping,
       ready: shard.status === 0,
       sequence: shard.sequence ?? null,
+      guildsList: guildPlacements.filter(guild => guild.shardId === shard.id),
     }));
 
     return {
@@ -224,6 +250,7 @@ async function collectClusterBreakdown(mgr) {
       wsStatus: c.ws.status,
       wsStatusLabel: mapStatus(c.ws.status),
       memoryMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
+      guildPlacements,
       timestamp: new Date().toISOString(),
     };
   });
@@ -297,6 +324,7 @@ async function syncClusterStatusToFirebase(mgr, stats = null) {
       wsStatus: cluster.wsStatus,
       wsStatusLabel: cluster.wsStatusLabel,
       memoryMB: cluster.memoryMB,
+      guildPlacements: cluster.guildPlacements ?? [],
       lastHeartbeatAt: nowIso,
       expiresAt: expiresAtIso,
     });
@@ -311,6 +339,7 @@ async function syncClusterStatusToFirebase(mgr, stats = null) {
         ping: shard.ping,
         sequence: shard.sequence,
         guilds: cluster.guilds,
+        guildsList: shard.guildsList ?? [],
         users: cluster.users,
         channels: cluster.channels,
         lastHeartbeatAt: nowIso,
@@ -601,6 +630,110 @@ async function ensureClusterRespawn(cluster, reason = 'unknown') {
   } finally {           
     respawningClusters.delete(cluster.id);
   }
+}
+
+async function pollControlCommands(mgr) {
+  const collection = firebase.getCollection('cluster_control_commands');
+  const commands = await collection
+    .find({ status: 'queued' })
+    .sort({ requestedAt: 1 })
+    .limit(5)
+    .toArray();
+
+  for (const command of commands) {
+    const startedAt = new Date();
+    await collection.updateOne(
+      { _id: command._id, status: 'queued' },
+      { $set: { status: 'running', startedAt, updatedAt: startedAt } }
+    );
+
+    try {
+      await executeControlCommand(mgr, command);
+      await collection.updateOne(
+        { _id: command._id },
+        { $set: { status: 'done', finishedAt: new Date(), updatedAt: new Date() } }
+      );
+    } catch (err) {
+      logger.error(`[Manager] Control command ${command.action} failed: ${err.message}`);
+      await collection.updateOne(
+        { _id: command._id },
+        { $set: { status: 'failed', error: err.message, finishedAt: new Date(), updatedAt: new Date() } }
+      );
+    }
+  }
+}
+
+async function executeControlCommand(mgr, command) {
+  const action = command.action;
+  const clusterId = Number(command.clusterId);
+
+  if (action === 'restart_all') {
+    logger.warn('[Manager] Admin requested restart_all');
+    administrativelyStoppedClusters.clear();
+    await Promise.all([...mgr.clusters.values()].map(cluster => ensureClusterRespawn(cluster, 'admin_restart_all')));
+    return;
+  }
+
+  if (action === 'shutdown_all') {
+    logger.warn('[Manager] Admin requested shutdown_all');
+    for (const cluster of mgr.clusters.values()) administrativelyStoppedClusters.add(cluster.id);
+    await markSystemStopped({ reason: 'admin_shutdown_all' });
+    await Promise.all([...mgr.clusters.values()].map(cluster => stopCluster(cluster)));
+    return;
+  }
+
+  if (action === 'maintenance_on' || action === 'maintenance_off') {
+    const enabled = action === 'maintenance_on';
+    logger.warn(`[Manager] Admin requested maintenance ${enabled ? 'on' : 'off'}`);
+    await firebase.setDoc(firebase.systemRef('clusterStatus'), {
+      maintenance: {
+        enabled,
+        message: enabled ? 'Maintenance enabled from admin dashboard.' : null,
+        startedAt: enabled ? new Date().toISOString() : null,
+        estimatedEndAt: null,
+      },
+    });
+    return;
+  }
+
+  const cluster = mgr.clusters.get(clusterId);
+  if (!cluster) throw new Error(`Cluster #${clusterId} was not found`);
+
+  if (action === 'restart_cluster') {
+    logger.warn(`[Manager] Admin requested restart for cluster #${clusterId}`);
+    administrativelyStoppedClusters.delete(clusterId);
+    await ensureClusterRespawn(cluster, 'admin_restart_cluster');
+    return;
+  }
+
+  if (action === 'shutdown_cluster') {
+    logger.warn(`[Manager] Admin requested shutdown for cluster #${clusterId}`);
+    administrativelyStoppedClusters.add(clusterId);
+    await writeClusterLifecycleStatus(clusterId, {
+      state: 'stopped',
+      ready: false,
+      processState: 'stopped',
+      lastEventAt: new Date().toISOString(),
+    });
+    await stopCluster(cluster);
+    return;
+  }
+
+  throw new Error(`Unsupported control action: ${action}`);
+}
+
+async function stopCluster(cluster) {
+  if (typeof cluster.kill === 'function') {
+    await cluster.kill({ force: true }).catch(() => {});
+    return;
+  }
+
+  if (cluster.process?.kill) {
+    cluster.process.kill('SIGTERM');
+    return;
+  }
+
+  await cluster.eval?.(c => c.destroy()).catch?.(() => {});
 }
 
 function fmtMemory() {

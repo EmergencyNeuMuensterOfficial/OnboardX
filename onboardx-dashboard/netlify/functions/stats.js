@@ -16,11 +16,23 @@ exports.handler = async (event) => {
     if (!access.allowed) return err('Forbidden', 403, { reason: access.reason });
 
     const startedAt = Date.now();
-    const [guild, channels, roles] = await Promise.all([
-      botFetch(`/guilds/${guildId}?with_counts=true`),
-      botFetch(`/guilds/${guildId}/channels`),
-      botFetch(`/guilds/${guildId}/roles`),
-    ]);
+    let degradedReason = access.warning || null;
+    let guild = null;
+    let channels = [];
+    let roles = [];
+
+    try {
+      [guild, channels, roles] = await Promise.all([
+        botFetch(`/guilds/${guildId}?with_counts=true`),
+        botFetch(`/guilds/${guildId}/channels`),
+        botFetch(`/guilds/${guildId}/roles`),
+      ]);
+    } catch (botError) {
+      degradedReason = botError.message;
+      guild = access.guild || { id: guildId, name: `Server ${guildId}`, icon: null };
+      channels = [];
+      roles = [];
+    }
 
     const textChannels = channels
       .filter((channel) => channel.type === 0 || channel.type === 5)
@@ -65,6 +77,8 @@ exports.handler = async (event) => {
       },
       meta: {
         apiLatencyMs: Date.now() - startedAt,
+        degraded: Boolean(degradedReason),
+        degradedReason,
       },
     });
   } catch (e) {

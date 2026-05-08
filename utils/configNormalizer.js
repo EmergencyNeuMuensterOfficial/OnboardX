@@ -17,6 +17,7 @@ function normalizeGuildConfig(config = {}) {
   };
 
   if (next.logging) {
+    next.logging.enabled = next.modules.logging;
     next.logging.channelId = first(
       next.logging.channelId,
       next.logging.modLogChannel,
@@ -55,6 +56,8 @@ function normalizeGuildConfig(config = {}) {
   }
 
   if (next.verification) {
+    next.verification.enabled = next.modules.verification;
+    next.verification.type = next.verification.type ?? 'math';
     next.verification.channelId = first(next.verification.channelId, next.verification.channel);
     next.verification.roleId = first(
       next.verification.roleId,
@@ -64,9 +67,13 @@ function normalizeGuildConfig(config = {}) {
       next.verification.timeout,
       Number(next.verification.expireMinutes) > 0 ? Number(next.verification.expireMinutes) * 60 : null
     ) ?? 120);
+    next.verification.maxAttempts = Number(first(next.verification.maxAttempts, 3) ?? 3);
+    next.verification.dmFallback = next.verification.dmFallback !== false;
+    next.verification.onFail = next.verification.onFail ?? 'kick';
   }
 
   if (next.tickets) {
+    next.tickets.enabled = next.modules.tickets;
     next.tickets.channelId = first(next.tickets.channelId, next.tickets.panelChannel);
     next.tickets.logChannelId = first(next.tickets.logChannelId, next.tickets.logChannel);
     next.tickets.supportRoleId = first(
@@ -74,9 +81,11 @@ function normalizeGuildConfig(config = {}) {
       Array.isArray(next.tickets.supportRoles) ? next.tickets.supportRoles[0] : null
     );
     next.tickets.maxOpenPerUser = Number(first(next.tickets.maxOpenPerUser, next.tickets.maxPerUser) ?? 1);
+    next.tickets.transcripts = next.tickets.transcripts !== false;
   }
 
   if (next.leveling) {
+    next.leveling.enabled = next.modules.leveling;
     next.leveling.multiplier = Number(first(next.leveling.multiplier, 1) ?? 1);
     next.leveling.cooldown = Number(first(next.leveling.cooldown, 60) ?? 60);
     next.leveling.xpMin = Number(first(next.leveling.xpMin, 15) ?? 15);
@@ -84,6 +93,8 @@ function normalizeGuildConfig(config = {}) {
     next.leveling.channelId = next.leveling.levelUpNotification === 'fixed'
       ? first(next.leveling.channelId, next.leveling.levelUpChannel)
       : next.leveling.channelId;
+    next.leveling.levelUpChannel = first(next.leveling.levelUpChannel, next.leveling.channelId);
+    next.leveling.levelUpNotification = next.leveling.levelUpNotification ?? (next.leveling.channelId ? 'fixed' : 'channel');
   }
 
   if (next.giveaways) {

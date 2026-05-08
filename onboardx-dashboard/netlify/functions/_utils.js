@@ -166,7 +166,10 @@ async function getManagedGuildAccess(userOrToken, guildId) {
 
   try {
     await botFetch(`/guilds/${guildId}`);
-  } catch {
+  } catch (error) {
+    if (allowedFromToken) {
+      return { allowed: true, reason: 'bot_status_unavailable', guild, warning: error.message };
+    }
     return { allowed: false, reason: 'bot_not_in_guild' };
   }
 
@@ -181,6 +184,7 @@ function defaultConfig(guildId) {
       maintenanceMode: false,
       statusApi: true,
       autoRespawn: true,
+      botIconUrl: '',
     },
     moderation: {
       enabled: true,

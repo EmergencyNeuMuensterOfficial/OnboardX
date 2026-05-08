@@ -27,6 +27,7 @@ const COLLECTIONS = {
   systemDocs: 'system_docs',
   clusterStatuses: 'cluster_statuses',
   shardStatuses: 'shard_statuses',
+  clusterControlCommands: 'cluster_control_commands',
 };
 
 function getEnv(name, fallback = null) {
@@ -100,6 +101,7 @@ async function ensureIndexes() {
     getCollection(COLLECTIONS.warnings).createIndex({ guildId: 1, userId: 1, active: 1, createdAt: -1 }),
     getCollection(COLLECTIONS.clusterStatuses).createIndex({ clusterId: 1 }, { unique: true }),
     getCollection(COLLECTIONS.shardStatuses).createIndex({ shardId: 1 }, { unique: true }),
+    getCollection(COLLECTIONS.clusterControlCommands).createIndex({ status: 1, requestedAt: 1 }),
   ]);
 
   indexesReady = true;

@@ -244,9 +244,18 @@ class TicketService {
       });
     }
 
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
     try {
+      const config = await GuildConfig.get(interaction.guild.id);
+
+      if (config.tickets?.transcripts === false) {
+        return interaction.reply({
+          embeds: [embed.error('Disabled', 'Ticket transcripts are disabled for this server.')],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
       const thread   = interaction.channel;
       const messages = await thread.messages.fetch({ limit: 100 });
       const sorted   = [...messages.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
@@ -254,7 +263,6 @@ class TicketService {
       const html = buildTranscriptHTML(ticket, sorted, interaction.guild.name);
       const buf  = Buffer.from(html, 'utf-8');
       const file = new AttachmentBuilder(buf, { name: `ticket-${ticket.ticketNumber}-transcript.html` });
-      const config = await GuildConfig.get(interaction.guild.id);
       const logChannelId = config.tickets?.logChannelId;
 
       if (logChannelId) {

@@ -325,13 +325,16 @@ module.exports = {
         .map(([name]) => name)
         .join(', ') || 'None';
       const joinRoleCount = (cfg.joinRoles?.humanRoles?.length ?? 0) + (cfg.joinRoles?.botRoles?.length ?? 0);
+      const premiumValue = cfg.premium
+        ? `Yes (${cfg.premiumTier ?? 'basic'}${cfg.premiumExpiresAt ? `, expires <t:${Math.floor(new Date(cfg.premiumExpiresAt).getTime() / 1000)}:R>` : ', no expiry'})`
+        : 'No';
 
       const fields = [
         { name: 'Modules', value: Object.entries(mods).map(([k, v]) => `${v ? 'ON' : 'OFF'} ${k}`).join('\n') || 'None', inline: true },
         { name: 'Log Channel', value: cfg.logging?.channelId ? `<#${cfg.logging.channelId}>` : 'Not set', inline: true },
         { name: 'Verify Role', value: cfg.verification?.roleId ? `<@&${cfg.verification.roleId}>` : 'Not set', inline: true },
         { name: 'XP Multiplier', value: String(cfg.leveling?.multiplier ?? 1.0), inline: true },
-        { name: 'Premium', value: cfg.premium ? `Yes (${cfg.premiumTier ?? 'basic'})` : 'No', inline: true },
+        { name: 'Premium', value: premiumValue, inline: true },
         { name: 'Log Events', value: enabledLogEvents.slice(0, 1024), inline: false },
         { name: 'Welcome', value: cfg.welcome?.channelId ? `<#${cfg.welcome.channelId}>` : 'Not set', inline: true },
         { name: 'Tickets', value: cfg.tickets?.channelId ? `<#${cfg.tickets.channelId}>` : 'Not set', inline: true },

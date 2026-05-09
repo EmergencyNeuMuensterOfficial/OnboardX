@@ -113,6 +113,15 @@ const DEFAULT_CONFIG = {
   },
   premium: false,
   premiumTier: null,
+  premiumExpiresAt: null,
+  premiumNotifications: {
+    sevenDays: false,
+    oneDay: false,
+    expired: false,
+  },
+  dashboard: {
+    moduleLocks: {},
+  },
 };
 
 class GuildConfig {

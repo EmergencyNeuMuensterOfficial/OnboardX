@@ -7,9 +7,27 @@ const {
   ok,
   err,
   options,
+  botFetch,
   getManagedGuildAccess,
 } = require('./_utils');
 const { toBotConfig, toDashboardConfig } = require('./_configAdapter');
+
+const DASHBOARD_MODULE_PATHS = {
+  overview: ['system'],
+  moderation: ['moderation'],
+  automod: ['automod', 'antispam'],
+  logging: ['logging'],
+  welcome: ['welcome'],
+  joinroles: ['joinRoles'],
+  verification: ['verification'],
+  tickets: ['tickets'],
+  leveling: ['leveling'],
+  reactionroles: ['reactionRoles'],
+  events: ['events'],
+  giveaways: ['giveaways', 'giveaway'],
+  polls: ['polls', 'poll'],
+  permissions: ['dashboard'],
+};
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options();
@@ -44,11 +62,29 @@ exports.handler = async (event) => {
         return err('Invalid JSON body', 400);
       }
 
+      const existingConfig = await col.findOne({ $or: [{ _id: guildId }, { guildId }] }) || defaultConfig(guildId);
       const sanitizedBody = toBotConfig(sanitizeConfigPayload(body));
-      const existing = await col.findOne({ $or: [{ _id: guildId }, { guildId }] }, { projection: { _id: 1 } });
+      sanitizedBody.premium = existingConfig.premium === true;
+      sanitizedBody.premiumTier = existingConfig.premiumTier ?? null;
+      sanitizedBody.premiumExpiresAt = existingConfig.premiumExpiresAt ?? null;
+      sanitizedBody.premiumNotifications = existingConfig.premiumNotifications ?? {
+        sevenDays: false,
+        oneDay: false,
+        expired: false,
+      };
+      const locked = await getLockedChangedModules({
+        user,
+        access,
+        guildId,
+        currentConfig: toBotConfig(existingConfig),
+        nextConfig: sanitizedBody,
+      });
+      if (locked.length) {
+        return err('Forbidden by dashboard module lock', 403, { lockedModules: locked });
+      }
 
       await col.updateOne(
-        { _id: existing?._id ?? guildId },
+        { _id: existingConfig?._id ?? guildId },
         {
           $set: { ...sanitizedBody, guildId, updatedAt: new Date() },
         },
@@ -67,6 +103,39 @@ exports.handler = async (event) => {
     return err('Internal error', 500, { details: e.message, code: e.code ?? null });
   }
 };
+
+async function getLockedChangedModules({ user, access, guildId, currentConfig, nextConfig }) {
+  if (access.guild?.owner) return [];
+
+  const locks = currentConfig.dashboard?.moduleLocks ?? {};
+  const changed = Object.entries(DASHBOARD_MODULE_PATHS)
+    .filter(([, paths]) => paths.some((path) => !deepEqual(currentConfig?.[path], nextConfig?.[path])))
+    .map(([moduleId]) => moduleId);
+
+  const locked = changed.filter((moduleId) => {
+    const lock = locks[moduleId];
+    return lock?.enabled === true && Array.isArray(lock.roleIds) && lock.roleIds.length > 0;
+  });
+
+  if (!locked.length) return [];
+
+  let memberRoleIds = [];
+  try {
+    const member = await botFetch(`/guilds/${guildId}/members/${user.userId}`);
+    memberRoleIds = Array.isArray(member.roles) ? member.roles : [];
+  } catch (error) {
+    return locked;
+  }
+
+  return locked.filter((moduleId) => {
+    const roleIds = locks[moduleId]?.roleIds ?? [];
+    return !roleIds.some((roleId) => memberRoleIds.includes(roleId));
+  });
+}
+
+function deepEqual(left, right) {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
 
 function sanitizeConfigPayload(value) {
   if (Array.isArray(value)) {

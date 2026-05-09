@@ -3,6 +3,22 @@
 function normalizeGuildConfig(config = {}) {
   const next = clone(config);
 
+  next.premiumExpiresAt = normalizeExpiry(next.premiumExpiresAt);
+  if (next.premium === true && isExpired(next.premiumExpiresAt)) {
+    next.premium = false;
+    next.premiumTier = null;
+  }
+  next.premiumNotifications = {
+    sevenDays: false,
+    oneDay: false,
+    expired: false,
+    ...(next.premiumNotifications ?? {}),
+  };
+  next.dashboard = {
+    ...(next.dashboard ?? {}),
+    moduleLocks: normalizeModuleLocks(next.dashboard?.moduleLocks),
+  };
+
   next.modules = {
     ...(next.modules ?? {}),
     logging: moduleEnabled(next.modules?.logging, undefined, hasLogging(next.logging)),
@@ -14,6 +30,8 @@ function normalizeGuildConfig(config = {}) {
     automod: moduleEnabled(next.modules?.automod, next.automod?.enabled),
     antispam: moduleEnabled(next.modules?.antispam, next.automod?.enabled),
     tickets: moduleEnabled(next.modules?.tickets, next.tickets?.enabled),
+    joinRoles: moduleEnabled(next.modules?.joinRoles, next.joinRoles?.enabled),
+    reactionRoles: moduleEnabled(next.modules?.reactionRoles, next.reactionRoles?.enabled),
   };
 
   if (next.logging) {
@@ -95,6 +113,22 @@ function normalizeGuildConfig(config = {}) {
       : next.leveling.channelId;
     next.leveling.levelUpChannel = first(next.leveling.levelUpChannel, next.leveling.channelId);
     next.leveling.levelUpNotification = next.leveling.levelUpNotification ?? (next.leveling.channelId ? 'fixed' : 'channel');
+    next.leveling.stackRoles = next.leveling.stackRoles === true;
+    next.leveling.roleRewards = Array.isArray(next.leveling.roleRewards) ? next.leveling.roleRewards : [];
+    next.leveling.customMessage = first(next.leveling.customMessage);
+  }
+
+  if (next.joinRoles) {
+    next.joinRoles.enabled = next.modules.joinRoles;
+    next.joinRoles.humanRoles = Array.isArray(next.joinRoles.humanRoles) ? next.joinRoles.humanRoles : [];
+    next.joinRoles.botRoles = Array.isArray(next.joinRoles.botRoles) ? next.joinRoles.botRoles : [];
+    next.joinRoles.minAccountAgeDays = Number(first(next.joinRoles.minAccountAgeDays, 0) ?? 0);
+    next.joinRoles.delaySeconds = Number(first(next.joinRoles.delaySeconds, 0) ?? 0);
+  }
+
+  if (next.reactionRoles) {
+    next.reactionRoles.enabled = next.modules.reactionRoles;
+    next.reactionRoles.panels = Array.isArray(next.reactionRoles.panels) ? next.reactionRoles.panels : [];
   }
 
   if (next.giveaways) {
@@ -128,6 +162,34 @@ function bool(existing, fallback) {
 function moduleEnabled(existing, dashboardValue, inferred = false) {
   if (dashboardValue === false) return false;
   return existing === true || dashboardValue === true || inferred === true;
+}
+
+function normalizeExpiry(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function isExpired(value) {
+  if (!value) return false;
+  const date = new Date(value);
+  return !Number.isNaN(date.getTime()) && date.getTime() <= Date.now();
+}
+
+function normalizeModuleLocks(value) {
+  const locks = {};
+  for (const [moduleId, lock] of Object.entries(value ?? {})) {
+    if (!lock || typeof lock !== 'object') continue;
+    const roleIds = Array.isArray(lock.roleIds)
+      ? lock.roleIds.map((roleId) => String(roleId)).filter(Boolean)
+      : [];
+    locks[moduleId] = {
+      enabled: lock.enabled === true,
+      roleIds,
+    };
+  }
+  return locks;
 }
 
 function hasLogging(logging = {}) {

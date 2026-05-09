@@ -120,6 +120,13 @@ async function restoreRuntimeState() {
   } catch (err) {
     logger.warn(`${shardTag} Event restore failed: ${err.message}`);
   }
+
+  try {
+    const PremiumExpiryService = require('./services/PremiumExpiryService');
+    PremiumExpiryService.start(client);
+  } catch (err) {
+    logger.warn(`${shardTag} Premium expiry service failed: ${err.message}`);
+  }
 }
 
 // ─── Process-level safety ─────────────────────────────────────────────────────

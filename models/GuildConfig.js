@@ -30,6 +30,8 @@ const DEFAULT_CONFIG = {
     antispam:      false,
     reactionRoles: false,
     tickets:       false,
+    inviteTracking: false,
+    modCases:      true,
   },
   logging: {
     channelId: null,
@@ -110,6 +112,18 @@ const DEFAULT_CONFIG = {
       7: 'ban',    // After 7 warnings → ban
     },
     muteRoleId: null,  // Legacy mute role (prefer Discord timeout)
+    caseLogChannelId: null,
+  },
+  inviteTracking: {
+    enabled: false,
+    logChannelId: null,
+    fakeThresholdDays: 7,
+    trackLeaves: true,
+  },
+  modCases: {
+    enabled: true,
+    logChannelId: null,
+    requireReason: false,
   },
   premium: false,
   premiumTier: null,

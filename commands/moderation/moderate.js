@@ -11,6 +11,7 @@ const {
   MessageFlags,
 } = require('discord.js');
 const LoggingService       = require('../../services/LoggingService');
+const ModCaseService       = require('../../services/ModCaseService');
 const embed                = require('../../utils/embed');
 const time                 = require('../../utils/time');
 const { assertPermission, assertBotPermissions } = require('../../utils/permissions');
@@ -109,6 +110,7 @@ module.exports = {
         moderator:  interaction.user,
         reason,
       });
+      await ModCaseService.create(interaction.guild, casePayload('Ban', target.user, interaction.user, reason));
       return;
     }
 
@@ -125,6 +127,7 @@ module.exports = {
         await interaction.guild.members.unban(userId, reason);
         await interaction.reply({ embeds: [embed.success('Unbanned', `${ban.user.tag} has been unbanned.`)], flags: MessageFlags.Ephemeral });
         await LoggingService.logModAction(interaction.guild, { action: 'Unban', target: ban.user, moderator: interaction.user, reason });
+        await ModCaseService.create(interaction.guild, casePayload('Unban', ban.user, interaction.user, reason));
       } catch {
         await interaction.reply({ embeds: [embed.error('Not Banned', 'No ban found for that user ID.')], flags: MessageFlags.Ephemeral });
       }
@@ -148,6 +151,7 @@ module.exports = {
       await target.kick(reason);
       await interaction.reply({ embeds: [embed.success('Kicked', `${target.user.tag} has been kicked.\n**Reason:** ${reason}`)], flags: MessageFlags.Ephemeral });
       await LoggingService.logModAction(interaction.guild, { action: 'Kick', target: target.user, moderator: interaction.user, reason });
+      await ModCaseService.create(interaction.guild, casePayload('Kick', target.user, interaction.user, reason));
       return;
     }
 
@@ -177,6 +181,7 @@ module.exports = {
         action: 'Timeout', target: target.user, moderator: interaction.user, reason,
         duration: time.formatDuration(durationMs),
       });
+      await ModCaseService.create(interaction.guild, casePayload('Timeout', target.user, interaction.user, reason, time.formatDuration(durationMs)));
       return;
     }
 
@@ -187,6 +192,7 @@ module.exports = {
       if (!target) return interaction.reply({ embeds: [embed.error('Not Found', 'User not found.')], flags: MessageFlags.Ephemeral });
 
       await target.timeout(null, 'Timeout removed by moderator');
+      await ModCaseService.create(interaction.guild, casePayload('Untimeout', target.user, interaction.user, 'Timeout removed by moderator'));
       return interaction.reply({ embeds: [embed.success('Timeout Removed', `${target.user.tag}'s timeout has been removed.`)], flags: MessageFlags.Ephemeral });
     }
 
@@ -209,6 +215,7 @@ module.exports = {
       });
 
       await LoggingService.logModAction(interaction.guild, { action: 'Warn', target: target.user, moderator: interaction.user, reason });
+      await ModCaseService.create(interaction.guild, casePayload('Warn', target.user, interaction.user, reason));
       return;
     }
 
@@ -238,3 +245,15 @@ module.exports = {
     }
   },
 };
+
+function casePayload(action, target, moderator, reason, duration = null) {
+  return {
+    action,
+    targetId: target.id,
+    targetTag: target.tag ?? target.username ?? String(target.id),
+    moderatorId: moderator.id,
+    moderatorTag: moderator.tag ?? moderator.username ?? String(moderator.id),
+    reason,
+    duration,
+  };
+}

@@ -31,7 +31,7 @@ const STATUS_SYNC_MS     = parseInt(process.env.CLUSTER_STATUS_SYNC_MS ?? '30000
 const CONTROL_POLL_MS    = parseInt(process.env.CLUSTER_CONTROL_POLL_MS ?? '5000', 10);
 const STATUSJSON_PATH    = path.join(__dirname, 'monitoring', 'statusjson.json');
 // If the manager crashes hard, no shutdown hook runs. This TTL lets UIs mark status as offline when stale.
-const STATUS_TTL_MS      = parseInt(process.env.CLUSTER_STATUS_TTL_MS ?? String(STATUS_SYNC_MS * 3), 10);
+const STATUS_TTL_MS      = parseInt(process.env.CLUSTER_STATUS_TTL_MS ?? String(Math.max(45_000, Math.ceil(STATUS_SYNC_MS * 1.5))), 10);
 
 const manager = new ClusterManager(path.join(__dirname, 'index.js'), {
   totalShards: TOTAL_SHARDS,
@@ -308,11 +308,12 @@ async function syncClusterStatusToFirebase(mgr, stats = null) {
   lastSnapshot = snapshot;
 
   await Promise.all(snapshot.perCluster.map(async cluster => {
+    const clusterState = cluster.ready ? 'ready' : mapRuntimeClusterState(cluster.wsStatusLabel);
     await firebase.setDoc(firebase.clusterRef(cluster.clusterId), {
       clusterId: cluster.clusterId,
-      state: cluster.ready ? 'ready' : 'degraded',
+      state: clusterState,
       ready: cluster.ready,
-      processState: cluster.ready ? 'online' : 'degraded',
+      processState: cluster.ready ? 'online' : clusterState,
       shards: cluster.shards,
       shardCount: cluster.shardCount,
       shardStates: cluster.shardStates,
@@ -382,16 +383,35 @@ async function syncClusterStatusToFirebase(mgr, stats = null) {
   });
 }
 
+function mapRuntimeClusterState(wsStatusLabel) {
+  if (wsStatusLabel === 'connecting' || wsStatusLabel === 'waiting_for_guilds' || wsStatusLabel === 'nearly') return 'starting';
+  if (wsStatusLabel === 'reconnecting') return 'reconnecting';
+  if (wsStatusLabel === 'disconnected') return 'disconnected';
+  return 'degraded';
+}
+
 async function writeClusterLifecycleStatus(clusterId, updates) {
   try {
+    const nowIso = new Date().toISOString();
+    const expiresAtIso = lifecycleExpiresAt(updates);
     await firebase.setDoc(firebase.clusterRef(clusterId), {
       clusterId,
+      lastHeartbeatAt: nowIso,
+      expiresAt: expiresAtIso,
       ...updates,
       maintenance: getMaintenanceState(),
     });
   } catch (err) {
     logger.warn(`[Manager] Failed to write lifecycle status for cluster #${clusterId}: ${err.message}`);
   }
+}
+
+function lifecycleExpiresAt(updates = {}) {
+  const state = updates.state ?? updates.processState;
+  if (['dead', 'dying', 'stopped', 'offline', 'disconnected', 'error', 'killed'].includes(state)) {
+    return new Date().toISOString();
+  }
+  return new Date(Date.now() + Math.max(15_000, STATUS_TTL_MS)).toISOString();
 }
 
 async function markSystemStopped(extra = {}) {

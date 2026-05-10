@@ -197,6 +197,7 @@ function defaultConfig(guildId) {
       timeoutDuration: 30,
       warnExpiry: 30,
       modLogChannel: '',
+      caseLogChannel: '',
       dmOnWarn: true,
       dmOnTimeout: true,
       dmOnKick: true,
@@ -296,6 +297,17 @@ function defaultConfig(guildId) {
     reactionRoles: {
       enabled: false,
       panels: [],
+    },
+    inviteTracking: {
+      enabled: false,
+      logChannel: '',
+      fakeThresholdDays: 7,
+      trackLeaves: true,
+    },
+    modCases: {
+      enabled: true,
+      logChannel: '',
+      requireReason: false,
     },
     events: {
       timezone: 'Europe/Berlin',

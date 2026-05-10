@@ -9,6 +9,7 @@ const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('disc
 const Warning              = require('../../models/Warning');
 const GuildConfig          = require('../../models/GuildConfig');
 const LoggingService       = require('../../services/LoggingService');
+const ModCaseService       = require('../../services/ModCaseService');
 const embed                = require('../../utils/embed');
 const time                 = require('../../utils/time');
 const { assertPermission } = require('../../utils/permissions');
@@ -103,6 +104,14 @@ module.exports = {
         action:    'Warning',
         target:    target.user,
         moderator: interaction.user,
+        reason,
+      });
+      await ModCaseService.create(interaction.guild, {
+        action: 'Warning',
+        targetId: target.id,
+        targetTag: target.user.tag,
+        moderatorId: interaction.user.id,
+        moderatorTag: interaction.user.tag,
         reason,
       });
 

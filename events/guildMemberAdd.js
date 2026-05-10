@@ -8,6 +8,7 @@ const LoggingService   = require('../services/LoggingService');
 const WelcomeService   = require('../services/WelcomeService');
 const AntiSpamService  = require('../services/AntiSpamService');
 const JoinRolesService = require('../services/JoinRolesService');
+const InviteTrackingService = require('../services/InviteTrackingService');
 
 module.exports = {
   name: 'guildMemberAdd',
@@ -18,6 +19,7 @@ module.exports = {
       WelcomeService.onJoin(member),
       AntiSpamService.trackJoin(member),
       JoinRolesService.onJoin(member),   // Auto-assign configured join roles
+      InviteTrackingService.onJoin(member),
     ]);
   },
 };

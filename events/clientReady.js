@@ -7,6 +7,7 @@
 
 const { ActivityType } = require('discord.js');
 const logger = require('../utils/logger');
+const InviteTrackingService = require('../services/InviteTrackingService');
 
 module.exports = {
   name: 'clientReady',
@@ -20,6 +21,10 @@ module.exports = {
 
     logger.info(`${tag} ✅ Logged in as ${client.user.tag}`);
     logger.info(`${tag} 📊 ${guilds} guild(s) | ${users} cached user(s) | ping ${client.ws.ping}ms`);
+
+    client.guilds.cache.forEach(guild => {
+      InviteTrackingService.cacheGuild(guild).catch(() => {});
+    });
 
     // Rotating presence — each shard shows the same set
     const statuses = [

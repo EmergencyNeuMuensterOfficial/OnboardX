@@ -54,6 +54,7 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMessageReactions,
     GatewayIntentBits.GuildModeration,
+    GatewayIntentBits.GuildInvites,
     GatewayIntentBits.DirectMessages,
     ...(enablePresenceIntent ? [GatewayIntentBits.GuildPresences] : []),
   ],

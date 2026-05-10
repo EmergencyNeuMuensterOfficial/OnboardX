@@ -32,6 +32,8 @@ function normalizeGuildConfig(config = {}) {
     tickets: moduleEnabled(next.modules?.tickets, next.tickets?.enabled),
     joinRoles: moduleEnabled(next.modules?.joinRoles, next.joinRoles?.enabled),
     reactionRoles: moduleEnabled(next.modules?.reactionRoles, next.reactionRoles?.enabled),
+    inviteTracking: moduleEnabled(next.modules?.inviteTracking, next.inviteTracking?.enabled),
+    modCases: moduleEnabled(next.modules?.modCases, next.modCases?.enabled, true),
   };
 
   if (next.logging) {
@@ -62,7 +64,22 @@ function normalizeGuildConfig(config = {}) {
       [Number(next.moderation.warnThresholdKick ?? 5)]: 'kick',
       [Number(next.moderation.warnThresholdBan ?? 7)]: 'ban',
     };
+    next.moderation.caseLogChannelId = first(next.moderation.caseLogChannelId, next.modCases?.logChannelId);
   }
+
+  next.inviteTracking = {
+    enabled: next.modules.inviteTracking,
+    logChannelId: null,
+    fakeThresholdDays: 7,
+    trackLeaves: true,
+    ...(next.inviteTracking ?? {}),
+  };
+
+  next.modCases = {
+    enabled: next.modules.modCases,
+    logChannelId: first(next.modCases?.logChannelId, next.moderation?.caseLogChannelId),
+    requireReason: next.modCases?.requireReason === true,
+  };
 
   if (next.welcome) {
     next.welcome.channelId = first(next.welcome.channelId, next.welcome.channel);

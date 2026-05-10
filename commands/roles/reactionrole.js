@@ -81,14 +81,25 @@ module.exports = {
         });
       }
 
-      await ReactionRoleService.sendPanel(channel, {
+      const message = await ReactionRoleService.sendPanel(channel, {
         title,
         description: desc,
         roles: roleEntries,
       });
 
       // Ensure module is enabled
-      await GuildConfig.update(interaction.guild.id, { 'modules.reactionRoles': true });
+      const cfg = await GuildConfig.get(interaction.guild.id);
+      const panel = ReactionRoleService.normalizePanel({
+        messageId: message.id,
+        channelId: channel.id,
+        title,
+        description: desc,
+        roles: roleEntries,
+      });
+      await GuildConfig.update(interaction.guild.id, {
+        'modules.reactionRoles': true,
+        'reactionRoles.panels': [...(cfg.reactionRoles?.panels ?? []), panel],
+      });
 
       return interaction.reply({
         embeds: [embed.success('Panel Created', `Role panel posted in ${channel} with **${roleEntries.length}** role${roleEntries.length !== 1 ? 's' : ''}.`)],

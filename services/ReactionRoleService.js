@@ -47,6 +47,21 @@ class ReactionRoleService {
     return msg;
   }
 
+  static normalizePanel(panel = {}) {
+    return {
+      messageId: panel.messageId ?? null,
+      channelId: panel.channelId ?? null,
+      title: panel.title ?? 'Self-Assignable Roles',
+      description: panel.description ?? 'Click a button below to toggle a role.',
+      roles: Array.isArray(panel.roles) ? panel.roles.slice(0, 25).map(role => ({
+        roleId: String(role.roleId ?? ''),
+        label: role.label || 'Role',
+        emoji: role.emoji || null,
+        color: role.color || 'Secondary',
+      })).filter(role => role.roleId) : [],
+    };
+  }
+
   /**
    * Handle a role-toggle button click.
    * @param {ButtonInteraction} interaction

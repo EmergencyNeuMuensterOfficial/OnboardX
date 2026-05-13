@@ -181,6 +181,7 @@ class PollService {
         totalVotes,
         pollId: poll.id,
       }).setTitle(`📊 [CLOSED] ${poll.question}`).setColor(0x95a5a6);
+      PollService.appendVoterBreakdown(finalEmbed, poll);
 
       // Disable all buttons
       const disabledRows = msg.components.map(row => {
@@ -198,6 +199,47 @@ class PollService {
       logger.error('PollService.close:', err);
     }
   }
+
+  static appendVoterBreakdown(targetEmbed, poll) {
+    if (poll.anonymous) {
+      targetEmbed.addFields({ name: 'Voters', value: 'This poll is anonymous.', inline: false });
+      return targetEmbed;
+    }
+
+    const votersByOption = poll.options.map(() => []);
+    for (const [userId, optionIndexes] of Object.entries(poll.voters ?? {})) {
+      const indexes = Array.isArray(optionIndexes) ? optionIndexes : [optionIndexes];
+      for (const index of indexes) {
+        if (votersByOption[index]) votersByOption[index].push(`<@${userId}>`);
+      }
+    }
+
+    const fields = votersByOption.slice(0, 20).map((voters, index) => ({
+      name: `Voters for ${index + 1}. ${String(poll.options[index]?.label ?? 'Option').slice(0, 80)}`,
+      value: formatVoterList(voters),
+      inline: false,
+    }));
+
+    if (poll.options.length > 20) {
+      fields.push({
+        name: 'More options',
+        value: `${poll.options.length - 20} more option(s) hidden to fit Discord embed limits.`,
+        inline: false,
+      });
+    }
+
+    targetEmbed.addFields(fields);
+    return targetEmbed;
+  }
+}
+
+function formatVoterList(voters) {
+  if (!voters.length) return 'No votes';
+  const maxVisible = 35;
+  const visible = voters.slice(0, maxVisible);
+  const suffix = voters.length > maxVisible ? `\n+${voters.length - maxVisible} more` : '';
+  const text = visible.join(', ') + suffix;
+  return text.length > 1024 ? `${text.slice(0, 1000)}...` : text;
 }
 
 module.exports = PollService;

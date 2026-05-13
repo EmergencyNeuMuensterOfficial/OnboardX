@@ -32,6 +32,8 @@ const DEFAULT_CONFIG = {
     tickets:       false,
     inviteTracking: false,
     modCases:      true,
+    tempVoice:     false,
+    integrations:  false,
   },
   logging: {
     channelId: null,
@@ -104,6 +106,16 @@ const DEFAULT_CONFIG = {
     supportRoleId: null, // Role pinged + given access to ticket threads
     logChannelId: null,  // Where closed-ticket transcripts are posted
     maxOpenPerUser: 1,
+    panelTitle: 'Support Tickets',
+    panelDescription: null,
+    buttonLabel: 'Open a Ticket',
+    defaultCategory: 'General',
+    defaultPriority: 'normal',
+    claimEnabled: true,
+    priorityEnabled: true,
+    closeDelaySeconds: 3,
+    autoCloseHours: 0,
+    transcripts: true,
   },
   moderation: {
     warnThresholds: {
@@ -124,6 +136,40 @@ const DEFAULT_CONFIG = {
     enabled: true,
     logChannelId: null,
     requireReason: false,
+  },
+  advancedPermissions: {
+    enabled: false,
+    bypassRoles: [],
+    users: {
+      owners: [],
+    },
+    roles: {
+      admin: [],
+      mod: [],
+      tickets: [],
+      giveaways: [],
+      polls: [],
+      events: [],
+      dashboard: [],
+    },
+  },
+  tempVoice: {
+    enabled: false,
+    createChannelId: null,
+    categoryId: null,
+    defaultName: '{username} voice',
+    defaultUserLimit: 0,
+    deleteWhenEmpty: true,
+  },
+  integrations: {
+    enabled: false,
+    events: ['ticket.opened', 'ticket.closed', 'modcase.created', 'invite.join', 'invite.leave'],
+    webhookUrl: null,
+    secret: null,
+    zapierWebhookUrl: null,
+    iftttWebhookUrl: null,
+    notionWebhookUrl: null,
+    googleSheetsWebhookUrl: null,
   },
   premium: false,
   premiumTier: null,

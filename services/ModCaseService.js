@@ -3,6 +3,7 @@
 const ModCase = require('../models/ModCase');
 const GuildConfig = require('../models/GuildConfig');
 const embed = require('../utils/embed');
+const IntegrationService = require('./IntegrationService');
 
 class ModCaseService {
   static async create(guild, data) {
@@ -11,6 +12,14 @@ class ModCaseService {
 
     const modCase = await ModCase.create(guild.id, data);
     await ModCaseService.log(guild, config, modCase);
+    await IntegrationService.emit(guild, 'modcase.created', {
+      caseId: modCase.caseId,
+      action: modCase.action,
+      targetId: modCase.targetId,
+      moderatorId: modCase.moderatorId,
+      reason: modCase.reason,
+      status: modCase.status,
+    });
     return modCase;
   }
 

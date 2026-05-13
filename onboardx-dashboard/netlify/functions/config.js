@@ -27,8 +27,11 @@ const DASHBOARD_MODULE_PATHS = {
   giveaways: ['giveaways', 'giveaway'],
   polls: ['polls', 'poll'],
   permissions: ['dashboard'],
+  advancedperms: ['advancedPermissions'],
+  integrations: ['integrations'],
   invites: ['inviteTracking'],
   modcases: ['modCases'],
+  tempvoice: ['tempVoice'],
 };
 
 exports.handler = async (event) => {

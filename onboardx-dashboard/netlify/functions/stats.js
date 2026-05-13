@@ -39,6 +39,16 @@ exports.handler = async (event) => {
       .sort((a, b) => a.position - b.position)
       .map((channel) => ({ id: channel.id, name: channel.name, type: channel.type }));
 
+    const voiceChannels = channels
+      .filter((channel) => channel.type === 2)
+      .sort((a, b) => a.position - b.position)
+      .map((channel) => ({ id: channel.id, name: channel.name, type: channel.type }));
+
+    const categories = channels
+      .filter((channel) => channel.type === 4)
+      .sort((a, b) => a.position - b.position)
+      .map((channel) => ({ id: channel.id, name: channel.name, type: channel.type }));
+
     const cleanRoles = roles
       .filter((role) => role.id !== guildId)
       .sort((a, b) => b.position - a.position)
@@ -66,6 +76,8 @@ exports.handler = async (event) => {
         boostCount: guild.premium_subscription_count ?? 0,
       },
       channels: textChannels,
+      voiceChannels,
+      categories,
       roles: cleanRoles,
       stats: {
         messagesTotal: dbStats.messagesTotal ?? 0,

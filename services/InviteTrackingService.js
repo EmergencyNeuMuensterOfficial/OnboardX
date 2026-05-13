@@ -3,6 +3,7 @@
 const InviteTracker = require('../models/InviteTracker');
 const GuildConfig = require('../models/GuildConfig');
 const embed = require('../utils/embed');
+const IntegrationService = require('./IntegrationService');
 
 const inviteCache = new Map();
 
@@ -38,6 +39,12 @@ class InviteTrackingService {
 
     await InviteTracker.recordJoin(member.guild.id, member.id, used?.inviter?.id ?? null, used?.code ?? null, fake);
     await InviteTrackingService.log(member.guild, config, 'Invite Join', `${member} joined using ${used ? `\`${used.code}\` from ${used.inviter}` : 'an unknown invite'}.${fake ? '\nMarked as fake/young account.' : ''}`);
+    await IntegrationService.emit(member.guild, 'invite.join', {
+      memberId: member.id,
+      inviterId: used?.inviter?.id ?? null,
+      code: used?.code ?? null,
+      fake,
+    });
   }
 
   static async onLeave(member) {
@@ -48,6 +55,10 @@ class InviteTrackingService {
     if (join?.inviterId) {
       await InviteTrackingService.log(member.guild, config, 'Invite Leave', `${member.user?.tag ?? member.id} left. Invited by <@${join.inviterId}>.`);
     }
+    await IntegrationService.emit(member.guild, 'invite.leave', {
+      memberId: member.id,
+      inviterId: join?.inviterId ?? null,
+    });
   }
 
   static async log(guild, config, title, description) {

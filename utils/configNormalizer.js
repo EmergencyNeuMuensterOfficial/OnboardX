@@ -34,6 +34,8 @@ function normalizeGuildConfig(config = {}) {
     reactionRoles: moduleEnabled(next.modules?.reactionRoles, next.reactionRoles?.enabled),
     inviteTracking: moduleEnabled(next.modules?.inviteTracking, next.inviteTracking?.enabled),
     modCases: moduleEnabled(next.modules?.modCases, next.modCases?.enabled, true),
+    tempVoice: moduleEnabled(next.modules?.tempVoice, next.tempVoice?.enabled),
+    integrations: moduleEnabled(next.modules?.integrations, next.integrations?.enabled),
   };
 
   if (next.logging) {
@@ -117,6 +119,15 @@ function normalizeGuildConfig(config = {}) {
     );
     next.tickets.maxOpenPerUser = Number(first(next.tickets.maxOpenPerUser, next.tickets.maxPerUser) ?? 1);
     next.tickets.transcripts = next.tickets.transcripts !== false;
+    next.tickets.panelTitle = first(next.tickets.panelTitle, 'Support Tickets');
+    next.tickets.panelDescription = first(next.tickets.panelDescription);
+    next.tickets.buttonLabel = first(next.tickets.buttonLabel, 'Open a Ticket');
+    next.tickets.defaultCategory = first(next.tickets.defaultCategory, 'General');
+    next.tickets.defaultPriority = first(next.tickets.defaultPriority, 'normal');
+    next.tickets.claimEnabled = next.tickets.claimEnabled !== false;
+    next.tickets.priorityEnabled = next.tickets.priorityEnabled !== false;
+    next.tickets.closeDelaySeconds = Number(first(next.tickets.closeDelaySeconds, 3) ?? 3);
+    next.tickets.autoCloseHours = Number(first(next.tickets.autoCloseHours, 0) ?? 0);
   }
 
   if (next.leveling) {
@@ -163,6 +174,45 @@ function normalizeGuildConfig(config = {}) {
     };
   }
 
+  next.advancedPermissions = {
+    enabled: next.advancedPermissions?.enabled === true,
+    bypassRoles: array(next.advancedPermissions?.bypassRoles),
+    users: {
+      owners: array(next.advancedPermissions?.users?.owners),
+    },
+    roles: {
+      admin: array(next.advancedPermissions?.roles?.admin),
+      mod: array(next.advancedPermissions?.roles?.mod),
+      tickets: array(next.advancedPermissions?.roles?.tickets),
+      giveaways: array(next.advancedPermissions?.roles?.giveaways),
+      polls: array(next.advancedPermissions?.roles?.polls),
+      events: array(next.advancedPermissions?.roles?.events),
+      dashboard: array(next.advancedPermissions?.roles?.dashboard),
+    },
+  };
+
+  next.tempVoice = {
+    enabled: next.modules.tempVoice,
+    createChannelId: first(next.tempVoice?.createChannelId, next.tempVoice?.createChannel),
+    categoryId: first(next.tempVoice?.categoryId, next.tempVoice?.category),
+    defaultName: first(next.tempVoice?.defaultName, '{username} voice'),
+    defaultUserLimit: Number(first(next.tempVoice?.defaultUserLimit, 0) ?? 0),
+    deleteWhenEmpty: next.tempVoice?.deleteWhenEmpty !== false,
+  };
+
+  next.integrations = {
+    enabled: next.modules.integrations,
+    events: array(next.integrations?.events).length
+      ? array(next.integrations?.events)
+      : ['ticket.opened', 'ticket.closed', 'modcase.created', 'invite.join', 'invite.leave'],
+    webhookUrl: first(next.integrations?.webhookUrl),
+    secret: first(next.integrations?.secret),
+    zapierWebhookUrl: first(next.integrations?.zapierWebhookUrl),
+    iftttWebhookUrl: first(next.integrations?.iftttWebhookUrl),
+    notionWebhookUrl: first(next.integrations?.notionWebhookUrl),
+    googleSheetsWebhookUrl: first(next.integrations?.googleSheetsWebhookUrl),
+  };
+
   return next;
 }
 
@@ -174,6 +224,11 @@ function bool(existing, fallback) {
   if (typeof existing === 'boolean') return existing;
   if (typeof fallback === 'boolean') return fallback;
   return Boolean(fallback);
+}
+
+function array(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => String(entry)).filter(Boolean);
 }
 
 function moduleEnabled(existing, dashboardValue, inferred = false) {

@@ -16,7 +16,7 @@ function countersCol() {
 }
 
 class Ticket {
-  static async create({ guildId, userId, channelId, threadId, subject }) {
+  static async create({ guildId, userId, channelId, threadId, subject, category = 'General', priority = 'normal' }) {
     const now = new Date();
     const id = db.createId();
     const cleanSubject = subject || 'No subject';
@@ -34,6 +34,9 @@ class Ticket {
       channelId,
       threadId,
       subject: cleanSubject,
+      category,
+      priority,
+      claimedBy: null,
       status: 'open',
       ticketNumber: counter?.count ?? counter?.value?.count ?? 1,
       createdAt: now,
@@ -79,6 +82,22 @@ class Ticket {
       { $set: { status: 'closed', closedBy, closedAt: new Date(), updatedAt: new Date() } }
     );
   }
+
+  static async claim(id, claimedBy) {
+    await ticketsCol().updateOne(
+      { _id: id, status: 'open' },
+      { $set: { claimedBy, updatedAt: new Date() } }
+    );
+    return Ticket.get(id);
+  }
+
+  static async setPriority(id, priority) {
+    await ticketsCol().updateOne(
+      { _id: id, status: 'open' },
+      { $set: { priority, updatedAt: new Date() } }
+    );
+    return Ticket.get(id);
+  }
 }
 
 function normalize(doc) {
@@ -89,6 +108,9 @@ function normalize(doc) {
     channelId: doc.channelId,
     threadId: doc.threadId,
     subject: doc.subject,
+    category: doc.category ?? 'General',
+    priority: doc.priority ?? 'normal',
+    claimedBy: doc.claimedBy ?? null,
     status: doc.status,
     ticketNumber: doc.ticketNumber,
     createdAt: db.toTimestamp(doc.createdAt),

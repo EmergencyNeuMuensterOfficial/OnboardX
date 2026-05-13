@@ -226,6 +226,16 @@ async function handleButton(interaction, client) {
     return TicketService.handleTranscript(interaction, ticketId);
   }
 
+  if (customId.startsWith('ticket_claim_')) {
+    const ticketId = customId.replace('ticket_claim_', '');
+    return TicketService.handleClaim(interaction, ticketId);
+  }
+
+  if (customId.startsWith('ticket_priority_')) {
+    const ticketId = customId.replace('ticket_priority_', '');
+    return TicketService.handlePriority(interaction, ticketId);
+  }
+
   // ── Reaction-role toggle buttons ───────────────────────────────────────────
   if (customId.startsWith('rr_toggle_')) {
     const roleId = customId.replace('rr_toggle_', '');

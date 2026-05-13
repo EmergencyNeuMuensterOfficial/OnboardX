@@ -61,6 +61,7 @@ async function assertPermission(interaction, level) {
   if (level === 'owner')       allowed = isOwner(member.id);
   else if (level === 'admin')  allowed = isAdmin(member);
   else if (level === 'mod')    allowed = isMod(member);
+  else if (typeof level === 'string') allowed = await hasAdvancedPermission(interaction, level);
   else                         allowed = hasPermission(member, level);
 
   if (!allowed) {
@@ -72,6 +73,28 @@ async function assertPermission(interaction, level) {
   }
 
   return allowed;
+}
+
+async function hasAdvancedPermission(interaction, level) {
+  const member = interaction.member;
+  if (!member) return false;
+  if (isAdmin(member) || isMod(member)) return true;
+
+  const GuildConfig = require('../models/GuildConfig');
+  const guildConfig = await GuildConfig.get(interaction.guild.id);
+  const advanced = guildConfig.advancedPermissions;
+  if (advanced?.enabled !== true) return false;
+
+  const roleIds = new Set(member.roles?.cache?.keys?.() ?? []);
+  const allowedRoles = [
+    ...(advanced.bypassRoles ?? []),
+    ...(advanced.roles?.[level] ?? []),
+  ].map(String);
+
+  return (
+    (advanced.users?.owners ?? []).map(String).includes(member.id) ||
+    allowedRoles.some((roleId) => roleIds.has(roleId))
+  );
 }
 
 /**
@@ -98,4 +121,4 @@ async function assertBotPermissions(interaction, permissions) {
   return true;
 }
 
-module.exports = { isOwner, hasPermission, isAdmin, isMod, assertPermission, assertBotPermissions };
+module.exports = { isOwner, hasPermission, isAdmin, isMod, assertPermission, assertBotPermissions, hasAdvancedPermission };
